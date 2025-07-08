@@ -65,5 +65,9 @@ class GomokuGame:
                 syms.append((new_planes, new_pi))
         return syms
 
-    def stringRepresentation(self, board: Board):
-        return board.board.tobytes()
+    def stringRepresentation(self, board: Board) -> bytes:
+        """Unique hashable representation of a board state."""
+        # Include the current player so identical positions with different
+        # players to move are treated as distinct states by the MCTS.
+        player_byte = bytes([1 if board.current_player == 1 else 0])
+        return board.board.tobytes() + player_byte
