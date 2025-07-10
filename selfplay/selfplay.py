@@ -23,6 +23,7 @@ class SelfPlayWorker:
         if net_path and os.path.exists(net_path):
             self.net.load_state_dict(torch.load(net_path, map_location=DEVICE))
             logger.info(f"Loaded model {net_path}")
+        self.net.eval()  # inference mode
         self.mcts = MCTS(self.game, self.net)
         self.num_games = num_games
         self.examples: List = []
