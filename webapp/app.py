@@ -137,8 +137,8 @@ def undo():
     global BOARD, HISTORY, VALUE_CURVE, POLICY, MCTS_OBJ
     if not HISTORY:
         return jsonify(error='no moves'), 400
-    BOARD.undo_move()
     HISTORY.pop()
+    BOARD.undo_move()
     if VALUE_CURVE:
         VALUE_CURVE.pop()
     # 重新评估当前局面
