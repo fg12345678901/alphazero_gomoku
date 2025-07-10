@@ -78,6 +78,7 @@ def start_game():
     return jsonify(success=True,
                    board=BOARD.board.tolist(),
                    current_player=int(BOARD.current_player),
+                   history=HISTORY,
                    policy=POLICY,
                    value_curve=VALUE_CURVE)
 
