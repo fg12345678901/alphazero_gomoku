@@ -106,7 +106,7 @@ def make_move():
         return jsonify(error='invalid'), 400
     if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
         return jsonify(error='not your turn'), 400
-    move = GAME.coord_to_move(x, y)
+    move = BOARD.coord_to_move(x, y)
     BOARD, _ = GAME.getNextState(BOARD, move)
     HISTORY.append(move)
     policy, value = evaluate(NET, GAME, BOARD)
