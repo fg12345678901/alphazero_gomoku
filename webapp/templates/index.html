@@ -152,7 +152,11 @@ function startGame() {
         gameOver = false;
         document.getElementById('status').textContent = '';
         renderBoard(res.data.board, policy);
-        valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        valuesElem.textContent = res.data.value_curve.map(v=>{
+            if (v > 0) return '●';
+            if (v < 0) return '○';
+            return '平';
+        }).join(' ');
         updateChart(res.data.value_curve);
     });
 }
@@ -169,7 +173,11 @@ function move(x, y) {
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
         renderBoard(res.data.board, policy);
-        valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        valuesElem.textContent = res.data.value_curve.map(v=>{
+            if (v > 0) return '●';
+            if (v < 0) return '○';
+            return '平';
+        }).join(' ');
         updateChart(res.data.value_curve);
         document.getElementById('status').textContent = '';
         awaitingAi = false;
@@ -191,7 +199,11 @@ function undo() {
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
         renderBoard(res.data.board, policy);
-        valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        valuesElem.textContent = res.data.value_curve.map(v=>{
+            if (v > 0) return '●';
+            if (v < 0) return '○';
+            return '平';
+        }).join(' ');
         updateChart(res.data.value_curve);
         document.getElementById('status').textContent = '';
     }).catch(err => { if (err.response) alert(err.response.data.error); });

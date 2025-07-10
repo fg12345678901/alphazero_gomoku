@@ -64,7 +64,7 @@ def start_game():
     HISTORY = []
     VALUE_CURVE = []
     policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value)
+    VALUE_CURVE.append(value * BOARD.current_player)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
     # 如果轮到 AI 先手，自动落子
     if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
@@ -93,7 +93,7 @@ def ai_move():
     BOARD, _ = GAME.getNextState(BOARD, move)
     HISTORY.append(move)
     policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value)
+    VALUE_CURVE.append(value * BOARD.current_player)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
 
 @app.route('/move', methods=['POST'])
@@ -110,7 +110,7 @@ def make_move():
     BOARD, _ = GAME.getNextState(BOARD, move)
     HISTORY.append(move)
     policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value)
+    VALUE_CURVE.append(value * BOARD.current_player)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
 
     winner = BOARD.get_winner()
@@ -138,6 +138,7 @@ def undo():
     # 重新评估当前局面
     MCTS_OBJ = MCTS(GAME, NET, getattr(MCTS_OBJ, 'sims', MCTS_SIMS))
     policy, value = evaluate(NET, GAME, BOARD)
+    value = value * BOARD.current_player
     if VALUE_CURVE:
         VALUE_CURVE[-1] = value
     else:
