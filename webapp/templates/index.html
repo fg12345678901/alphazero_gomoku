@@ -51,6 +51,7 @@
     <button onclick="undo()">悔棋</button>
 </div>
 <div id="board"></div>
+<div id="status" style="margin-top:10px;color:#d33;"></div>
 <div>
     <h3>AI 价值估计</h3>
     <pre id="values"></pre>
@@ -64,6 +65,8 @@ let boardElem = document.getElementById('board');
 let valuesElem = document.getElementById('values');
 let policy = null;
 let currentBoard = null;
+let currentPlayer = 1;
+let awaitingAi = false;
 let chart = null;
 
 function initChart() {
@@ -136,6 +139,7 @@ function renderBoard(board, probs) {
 }
 
 function startGame() {
+    document.getElementById('status').textContent = '加载中...';
     axios.post('/start', {
         mode: document.getElementById('mode').value,
         human_player: document.getElementById('human_color').value,
@@ -143,6 +147,8 @@ function startGame() {
     }).then(res => {
         policy = res.data.policy;
         currentBoard = res.data.board;
+        currentPlayer = res.data.current_player;
+        document.getElementById('status').textContent = '';
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         updateChart(res.data.value_curve);
@@ -150,25 +156,40 @@ function startGame() {
 }
 
 function move(x, y) {
+    if (awaitingAi || currentBoard[x][y] !== 0) return;
+    currentBoard[x][y] = currentPlayer;
+    currentPlayer = -currentPlayer;
+    renderBoard(currentBoard, policy);
+    awaitingAi = true;
+    document.getElementById('status').textContent = 'AI 思考中...';
     axios.post('/move', {x: x, y: y}).then(res => {
         policy = res.data.policy;
         currentBoard = res.data.board;
+        currentPlayer = res.data.current_player;
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         updateChart(res.data.value_curve);
+        document.getElementById('status').textContent = '';
+        awaitingAi = false;
         if (res.data.winner !== null) {
             alert(res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局'));
         }
-    }).catch(err => { if (err.response) alert(err.response.data.error); });
+    }).catch(err => {
+        if (err.response) alert(err.response.data.error);
+        document.getElementById('status').textContent = '';
+        awaitingAi = false;
+    });
 }
 
 function undo() {
     axios.post('/undo').then(res => {
         policy = res.data.policy;
         currentBoard = res.data.board;
+        currentPlayer = res.data.current_player;
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         updateChart(res.data.value_curve);
+        document.getElementById('status').textContent = '';
     }).catch(err => { if (err.response) alert(err.response.data.error); });
 }
 
