@@ -5,13 +5,15 @@
     <title>AlphaZero 五子棋</title>
     <style>
         table { border-collapse: collapse; }
-        td {
+        td, th {
             width: 30px; height: 30px;
             border: 1px solid #555;
             text-align: center;
             font-size: 24px;
-            cursor: pointer;
             position: relative;
+        }
+        td {
+            cursor: pointer;
         }
         td .prob {
             position: absolute;
@@ -19,6 +21,9 @@
             right: 0;
             font-size: 10px;
             color: #666;
+        }
+        .best-move {
+            background-color: #ffeb3b;
         }
     </style>
 </head>
@@ -38,6 +43,10 @@
             <option value="-1">AI</option>
         </select>
     </label>
+    <label>搜索次数:
+        <input id="sims" type="number" value="600" style="width:70px;">
+    </label>
+    <label><input type="checkbox" id="show_prob" checked>显示概率</label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
 </div>
@@ -54,6 +63,7 @@ let size = {{ size }};
 let boardElem = document.getElementById('board');
 let valuesElem = document.getElementById('values');
 let policy = null;
+let currentBoard = null;
 let chart = null;
 
 function initChart() {
@@ -74,6 +84,9 @@ function initChart() {
         }
     });
 }
+document.getElementById('show_prob').addEventListener('change', () => {
+    if(currentBoard) renderBoard(currentBoard, policy);
+});
 
 function updateChart(values) {
     if (!chart) return;
@@ -83,18 +96,33 @@ function updateChart(values) {
 }
 
 function renderBoard(board, probs) {
-    let html = '<table>';
+    currentBoard = board;
+    let showProb = document.getElementById('show_prob').checked;
+    let html = '<table><tr><th></th>';
+    for (let j=0;j<size;j++) html += `<th>${j+1}</th>`;
+    html += '</tr>';
+    let best = {x:-1,y:-1,p:0};
+    if (probs) {
+        for (let i=0;i<size;i++) {
+            for (let j=0;j<size;j++) {
+                if (board[i][j]===0 && probs[i][j] > best.p) {
+                    best = {x:i,y:j,p:probs[i][j]};
+                }
+            }
+        }
+    }
     for (let i=0;i<size;i++) {
-        html += '<tr>';
+        html += `<tr><th>${i+1}</th>`;
         for (let j=0;j<size;j++) {
             let v = board[i][j];
             let text = v===1?'●':(v===-1?'○':'');
             let probText = '';
-            if (v===0 && probs) {
+            if (v===0 && probs && showProb) {
                 let p = probs[i][j] * 100;
                 probText = `<span class="prob">${p.toFixed(1)}</span>`;
             }
-            html += `<td data-x="${i}" data-y="${j}">${text}${probText}</td>`;
+            let cls = (i===best.x && j===best.y && probs)?'best-move':'';
+            html += `<td class="${cls}" data-x="${i}" data-y="${j}">${text}${probText}</td>`;
         }
         html += '</tr>';
     }
@@ -110,9 +138,11 @@ function renderBoard(board, probs) {
 function startGame() {
     axios.post('/start', {
         mode: document.getElementById('mode').value,
-        human_player: document.getElementById('human_color').value
+        human_player: document.getElementById('human_color').value,
+        mcts_sims: document.getElementById('sims').value
     }).then(res => {
         policy = res.data.policy;
+        currentBoard = res.data.board;
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         updateChart(res.data.value_curve);
@@ -122,6 +152,7 @@ function startGame() {
 function move(x, y) {
     axios.post('/move', {x: x, y: y}).then(res => {
         policy = res.data.policy;
+        currentBoard = res.data.board;
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         updateChart(res.data.value_curve);
@@ -134,6 +165,7 @@ function move(x, y) {
 function undo() {
     axios.post('/undo').then(res => {
         policy = res.data.policy;
+        currentBoard = res.data.board;
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         updateChart(res.data.value_curve);

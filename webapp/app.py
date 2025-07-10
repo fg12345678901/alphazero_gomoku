@@ -6,7 +6,7 @@ import glob, os
 from gomoku.game import GomokuGame
 from network.model import AlphaZeroNet
 from mcts.mcts import MCTS
-from config import DEVICE
+from config import DEVICE, MCTS_SIMS
 
 app = Flask(__name__)
 
@@ -58,8 +58,9 @@ def start_game():
     data = request.get_json(force=True)
     MODE = data.get('mode', 'human_ai')
     HUMAN_PLAYER = int(data.get('human_player', 1))
+    sims = int(data.get('mcts_sims', MCTS_SIMS))
     BOARD = GAME.getInitBoard()
-    MCTS_OBJ = MCTS(GAME, NET)
+    MCTS_OBJ = MCTS(GAME, NET, sims)
     HISTORY = []
     VALUE_CURVE = []
     policy, value = evaluate(NET, GAME, BOARD)
@@ -132,7 +133,7 @@ def undo():
     if VALUE_CURVE:
         VALUE_CURVE.pop()
     # 重新评估当前局面
-    MCTS_OBJ = MCTS(GAME, NET)
+    MCTS_OBJ = MCTS(GAME, NET, getattr(MCTS_OBJ, 'sims', MCTS_SIMS))
     policy, value = evaluate(NET, GAME, BOARD)
     if VALUE_CURVE:
         VALUE_CURVE[-1] = value
