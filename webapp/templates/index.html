@@ -39,18 +39,48 @@
         </select>
     </label>
     <button onclick="startGame()">开始</button>
+    <button onclick="undo()">悔棋</button>
 </div>
 <div id="board"></div>
 <div>
     <h3>AI 价值估计</h3>
     <pre id="values"></pre>
+    <canvas id="valueChart" width="400" height="200"></canvas>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 let size = {{ size }};
 let boardElem = document.getElementById('board');
 let valuesElem = document.getElementById('values');
 let policy = null;
+let chart = null;
+
+function initChart() {
+    const ctx = document.getElementById('valueChart').getContext('2d');
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: '胜率估计',
+                data: [],
+                fill: false,
+                borderColor: 'blue'
+            }]
+        },
+        options: {
+            scales: { y: { min: -1, max: 1 } }
+        }
+    });
+}
+
+function updateChart(values) {
+    if (!chart) return;
+    chart.data.labels = values.map((_, i) => i);
+    chart.data.datasets[0].data = values;
+    chart.update();
+}
 
 function renderBoard(board, probs) {
     let html = '<table>';
@@ -84,7 +114,8 @@ function startGame() {
     }).then(res => {
         policy = res.data.policy;
         renderBoard(res.data.board, policy);
-        valuesElem.textContent = '';
+        valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        updateChart(res.data.value_curve);
     });
 }
 
@@ -93,11 +124,23 @@ function move(x, y) {
         policy = res.data.policy;
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        updateChart(res.data.value_curve);
         if (res.data.winner !== null) {
             alert(res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局'));
         }
     }).catch(err => { if (err.response) alert(err.response.data.error); });
 }
+
+function undo() {
+    axios.post('/undo').then(res => {
+        policy = res.data.policy;
+        renderBoard(res.data.board, policy);
+        valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        updateChart(res.data.value_curve);
+    }).catch(err => { if (err.response) alert(err.response.data.error); });
+}
+
+initChart();
 </script>
 </body>
 </html>
