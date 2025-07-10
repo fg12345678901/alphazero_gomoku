@@ -1,6 +1,6 @@
 body {
     font-family: "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
-    background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
+    background: linear-gradient(120deg, #fdfbfb 0%, #ebedee 100%);
     color: #333;
     display: flex;
     flex-direction: column;
@@ -32,16 +32,17 @@ h1 {
 }
 
 button {
-    background: #ff7043;
+    background: linear-gradient(135deg, #ff9a9e 0%, #f8696b 100%);
     border: none;
     color: #fff;
     padding: 6px 12px;
     border-radius: 4px;
     cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
 button:hover {
-    background: #f4511e;
+    background: linear-gradient(135deg, #f96b7b 0%, #f4511e 100%);
 }
 
 #status {
@@ -52,7 +53,7 @@ button:hover {
 table.board {
     border-collapse: collapse;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    background: #f8efd5;
+    background: linear-gradient(145deg, #f8efd5, #e0c48f);
     margin-bottom: 10px;
     border-radius: 6px;
     overflow: hidden;
@@ -67,6 +68,11 @@ td, th {
     position: relative;
 }
 
+th {
+    background: #d1b97d;
+    color: #333;
+}
+
 td {
     cursor: pointer;
     background: #f5deb3;
@@ -74,6 +80,28 @@ td {
 
 td:hover {
     background: #eed5a7;
+}
+
+td.black, td.white {
+    font-size: 0;
+}
+
+td.black::before, td.white::before {
+    content: "";
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+}
+
+td.black::before {
+    background: radial-gradient(circle at 30% 30%, #666, #000);
+}
+
+td.white::before {
+    background: radial-gradient(circle at 30% 30%, #fff, #ddd);
 }
 
 td .prob {
@@ -92,29 +120,30 @@ td .prob {
 .last-white::after {
     content: "";
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 36px;
-    height: 36px;
+    top: 4px;
+    left: 4px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     pointer-events: none;
     box-sizing: border-box;
 }
 
 .last-black::after {
-    border: 2px solid #e91e63;
+    box-shadow: 0 0 8px 3px rgba(233, 30, 99, 0.8);
 }
 
 .last-white::after {
-    border: 2px solid #2196f3;
+    box-shadow: 0 0 8px 3px rgba(33, 150, 243, 0.8);
 }
 
 .move-num {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    font-size: 10px;
-    color: #000;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: bold;
     pointer-events: none;
 }
 
