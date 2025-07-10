@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>AlphaZero 五子棋</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -28,13 +29,15 @@
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
 </div>
-<div id="board"></div>
-<div id="status"></div>
-<div>
-    <h3>AI 价值估计</h3>
-    <p id="values"></p>
-    <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
-    <canvas id="valueChart" width="400" height="200"></canvas>
+<div class="game-area">
+    <div id="board"></div>
+    <div id="status"></div>
+    <div class="chart-container">
+        <h3>AI 价值估计</h3>
+        <p id="values"></p>
+        <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
+        <canvas id="valueChart" width="400" height="200"></canvas>
+    </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
