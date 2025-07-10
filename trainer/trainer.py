@@ -59,9 +59,11 @@ class Trainer:
         net_new = AlphaZeroNet().to(DEVICE)
         logger.info(f"Load NEW model: {latest_path}")
         net_new.load_state_dict(torch.load(latest_path, map_location=DEVICE))
+        net_new.eval()
         net_old = AlphaZeroNet().to(DEVICE)
         logger.info(f"Load OLD model: {prev_path}")
         net_old.load_state_dict(torch.load(prev_path, map_location=DEVICE))
+        net_old.eval()
 
         arena = Arena(net_new, net_old, num_games)
         n1, n2, d = arena.play()
