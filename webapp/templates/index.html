@@ -11,6 +11,14 @@
             text-align: center;
             font-size: 24px;
             cursor: pointer;
+            position: relative;
+        }
+        td .prob {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            font-size: 10px;
+            color: #666;
         }
     </style>
 </head>
@@ -42,15 +50,21 @@
 let size = {{ size }};
 let boardElem = document.getElementById('board');
 let valuesElem = document.getElementById('values');
+let policy = null;
 
-function renderBoard(board) {
+function renderBoard(board, probs) {
     let html = '<table>';
     for (let i=0;i<size;i++) {
         html += '<tr>';
         for (let j=0;j<size;j++) {
             let v = board[i][j];
             let text = v===1?'●':(v===-1?'○':'');
-            html += `<td data-x="${i}" data-y="${j}">${text}</td>`;
+            let probText = '';
+            if (v===0 && probs) {
+                let p = probs[i][j] * 100;
+                probText = `<span class="prob">${p.toFixed(1)}</span>`;
+            }
+            html += `<td data-x="${i}" data-y="${j}">${text}${probText}</td>`;
         }
         html += '</tr>';
     }
@@ -68,14 +82,16 @@ function startGame() {
         mode: document.getElementById('mode').value,
         human_player: document.getElementById('human_color').value
     }).then(res => {
-        renderBoard(res.data.board);
+        policy = res.data.policy;
+        renderBoard(res.data.board, policy);
         valuesElem.textContent = '';
     });
 }
 
 function move(x, y) {
     axios.post('/move', {x: x, y: y}).then(res => {
-        renderBoard(res.data.board);
+        policy = res.data.policy;
+        renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
         if (res.data.winner !== null) {
             alert(res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局'));
