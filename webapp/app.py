@@ -68,7 +68,8 @@ def start_game():
     return jsonify(success=True,
                    board=BOARD.board.tolist(),
                    current_player=int(BOARD.current_player),
-                   policy=POLICY)
+                   policy=POLICY,
+                   value_curve=VALUE_CURVE)
 
 @app.route('/state')
 def get_state():
@@ -114,6 +115,31 @@ def make_move():
         ai_move()
         winner = BOARD.get_winner()
 
+    return jsonify(board=BOARD.board.tolist(),
+                   current_player=int(BOARD.current_player),
+                   history=HISTORY,
+                   value_curve=VALUE_CURVE,
+                   policy=POLICY,
+                   winner=winner)
+
+@app.route('/undo', methods=['POST'])
+def undo():
+    global BOARD, HISTORY, VALUE_CURVE, POLICY, MCTS_OBJ
+    if not HISTORY:
+        return jsonify(error='no moves'), 400
+    BOARD.undo_move()
+    HISTORY.pop()
+    if VALUE_CURVE:
+        VALUE_CURVE.pop()
+    # 重新评估当前局面
+    MCTS_OBJ = MCTS(GAME, NET)
+    policy, value = evaluate(NET, GAME, BOARD)
+    if VALUE_CURVE:
+        VALUE_CURVE[-1] = value
+    else:
+        VALUE_CURVE.append(value)
+    POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
+    winner = BOARD.get_winner()
     return jsonify(board=BOARD.board.tolist(),
                    current_player=int(BOARD.current_player),
                    history=HISTORY,
