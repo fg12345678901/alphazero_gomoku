@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>AlphaZero 五子棋</title>
+    <style>
+        table { border-collapse: collapse; }
+        td {
+            width: 30px; height: 30px;
+            border: 1px solid #555;
+            text-align: center;
+            font-size: 24px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+<h1>AlphaZero 五子棋</h1>
+<div>
+    <label>模式:
+        <select id="mode">
+            <option value="human_ai">人机对战</option>
+            <option value="human_human">人人对战</option>
+            <option value="ai_ai">机机对战</option>
+        </select>
+    </label>
+    <label>执黑方:
+        <select id="human_color">
+            <option value="1">玩家</option>
+            <option value="-1">AI</option>
+        </select>
+    </label>
+    <button onclick="startGame()">开始</button>
+</div>
+<div id="board"></div>
+<div>
+    <h3>AI 价值估计</h3>
+    <pre id="values"></pre>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script>
+let size = {{ size }};
+let boardElem = document.getElementById('board');
+let valuesElem = document.getElementById('values');
+
+function renderBoard(board) {
+    let html = '<table>';
+    for (let i=0;i<size;i++) {
+        html += '<tr>';
+        for (let j=0;j<size;j++) {
+            let v = board[i][j];
+            let text = v===1?'●':(v===-1?'○':'');
+            html += `<td data-x="${i}" data-y="${j}">${text}</td>`;
+        }
+        html += '</tr>';
+    }
+    html += '</table>';
+    boardElem.innerHTML = html;
+    document.querySelectorAll('#board td').forEach(td => {
+        td.addEventListener('click', () => {
+            move(td.dataset.x, td.dataset.y);
+        });
+    });
+}
+
+function startGame() {
+    axios.post('/start', {
+        mode: document.getElementById('mode').value,
+        human_player: document.getElementById('human_color').value
+    }).then(res => {
+        renderBoard(res.data.board);
+        valuesElem.textContent = '';
+    });
+}
+
+function move(x, y) {
+    axios.post('/move', {x: x, y: y}).then(res => {
+        renderBoard(res.data.board);
+        valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
+        if (res.data.winner !== null) {
+            alert(res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局'));
+        }
+    }).catch(err => { if (err.response) alert(err.response.data.error); });
+}
+</script>
+</body>
+</html>
