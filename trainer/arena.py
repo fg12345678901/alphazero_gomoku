@@ -37,7 +37,7 @@ class Arena:
             mcts = mcts_b if board.current_player == 1 else mcts_w
             # ---------- 加随机性 (首步加入噪声，前 N_TEMP_MOVES 的 temp 为 1) ----------
             add_noise = (step == 0)                 # 仅首手注入 Dirichlet
-            temp      = 1 if step < N_TEMP_MOVES else 0        # 前 2 手用采样，可自行调
+            temp      = 1 if step < N_TEMP_MOVES else 0        # 前 N_TEMP_MOVES 手用采样，可自行调
             pi = mcts.get_action_probs(board, temp=temp, add_noise=add_noise)
             move = np.random.choice(len(pi), p=pi)  # 按概率采样
             board, _ = self.game.getNextState(board, move)

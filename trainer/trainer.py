@@ -1,6 +1,6 @@
 # trainer/trainer.py
 from __future__ import annotations
-import os, glob, time, pickle
+import os, glob, time, pickle, json
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
@@ -48,7 +48,9 @@ class Trainer:
         self._save_model()
 
     # ----------------- 评估与更替 ----------------- #
-    def evaluate_and_update(self, num_games):
+    def evaluate_and_update(self, num_games,
+                            out: str | None = None,
+                            no_update: bool = False):
         latest_path = self._latest_model_path()
         prev_path   = self._previous_model_path()
         if not prev_path:
@@ -63,6 +65,16 @@ class Trainer:
 
         arena = Arena(net_new, net_old, num_games)
         n1, n2, d = arena.play()
+
+
+        # ---- 可选保存单卡结果 ----
+        if out:
+            with open(out, "w") as fp:
+                json.dump({"wins": n1, "losses": n2, "draws": d}, fp)
+        if no_update:          # 并行模式下直接返回，聚合脚本再决定删不删
+            return
+
+
         win_rate = n1 / (n1 + n2 + d)
         logger.info(f"Arena result new/old/draw = {n1}/{n2}/{d}, win_rate={win_rate:.2%}")
         if win_rate < EVAL_THRESHOLD:

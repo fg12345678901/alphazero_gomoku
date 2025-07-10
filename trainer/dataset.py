@@ -13,7 +13,11 @@ class ReplayBuffer(Dataset):
         self.load_existing()
 
     def load_existing(self):
-        files = sorted(glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")))
+        # files = sorted(glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")))
+        files = sorted(
+                        glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")),
+                        key=os.path.getmtime        # 用文件修改时间而不是名字
+                        )
         for f in files:
             with open(f, "rb") as fp:
                 self.data.extend(pickle.load(fp))
