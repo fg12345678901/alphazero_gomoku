@@ -66,6 +66,9 @@ def start_game():
     policy, value = evaluate(NET, GAME, BOARD)
     VALUE_CURVE.append(value)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
+    # 如果轮到 AI 先手，自动落子
+    if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
+        ai_move()
     return jsonify(success=True,
                    board=BOARD.board.tolist(),
                    current_player=int(BOARD.current_player),
