@@ -1,7 +1,13 @@
+import os
+import sys
+
 from flask import Flask, render_template, request, jsonify
 import numpy as np
 import torch
-import glob, os
+import glob
+
+# Ensure local modules take precedence over any installed packages
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gomoku.game import GomokuGame
 from network.model import AlphaZeroNet
