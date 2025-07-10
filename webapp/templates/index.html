@@ -3,33 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>AlphaZero 五子棋</title>
-    <style>
-        table { border-collapse: collapse; }
-        td, th {
-            width: 30px; height: 30px;
-            border: 1px solid #555;
-            text-align: center;
-            font-size: 24px;
-            position: relative;
-        }
-        td {
-            cursor: pointer;
-        }
-        td .prob {
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            font-size: 10px;
-            color: #666;
-        }
-        .best-move {
-            background-color: #ffeb3b;
-        }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 <h1>AlphaZero 五子棋</h1>
-<div>
+<div class="controls">
     <label>模式:
         <select id="mode">
             <option value="human_ai">人机对战</option>
@@ -51,11 +29,11 @@
     <button onclick="undo()">悔棋</button>
 </div>
 <div id="board"></div>
-<div id="status" style="margin-top:10px;color:#d33;"></div>
+<div id="status"></div>
 <div>
     <h3>AI 价值估计</h3>
-    <p id="values" style="margin:4px 0;"></p>
-    <p style="font-size:small;margin:4px 0;">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
+    <p id="values"></p>
+    <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
     <canvas id="valueChart" width="400" height="200"></canvas>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -109,7 +87,7 @@ function updateChart(values) {
 function renderBoard(board, probs) {
     currentBoard = board;
     let showProb = document.getElementById('show_prob').checked;
-    let html = '<table><tr><th></th>';
+    let html = '<table class="board"><tr><th></th>';
     for (let j=0;j<size;j++) html += `<th>${j+1}</th>`;
     html += '</tr>';
     let best = {x:-1,y:-1,p:0};
