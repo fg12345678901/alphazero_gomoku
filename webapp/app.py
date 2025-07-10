@@ -137,10 +137,20 @@ def undo():
     global BOARD, HISTORY, VALUE_CURVE, POLICY, MCTS_OBJ
     if not HISTORY:
         return jsonify(error='no moves'), 400
+
+    # 撤销一步
     HISTORY.pop()
     BOARD.undo_move()
     if VALUE_CURVE:
         VALUE_CURVE.pop()
+
+    # 如果是人机模式并且轮到 AI，下退一步以回到玩家手动决策前的局面
+    if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER and HISTORY:
+        HISTORY.pop()
+        BOARD.undo_move()
+        if VALUE_CURVE:
+            VALUE_CURVE.pop()
+
     # 重新评估当前局面
     MCTS_OBJ = MCTS(GAME, NET, getattr(MCTS_OBJ, 'sims', MCTS_SIMS))
     policy, value = evaluate(NET, GAME, BOARD)
@@ -149,6 +159,7 @@ def undo():
         VALUE_CURVE[-1] = value
     else:
         VALUE_CURVE.append(value)
+
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
     winner = BOARD.get_winner()
     return jsonify(board=BOARD.board.tolist(),
