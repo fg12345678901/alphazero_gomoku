@@ -7,13 +7,13 @@ N_IN_ROW   = 5             # 连五即可胜
 CHANNELS   = 256           # 卷积通道
 NUM_RES    = 15             # 残差块数量
 MCTS_SIMS  = 600          # 每步搜索次数
-CPUCT      = 2.5           # MCTS 探索系数
+CPUCT      = 2.0           # MCTS 探索系数
 
-BUFFER_SIZE      = 200_000   # 经验缓存上限
+BUFFER_SIZE      = 300_000   # 经验缓存上限
 BATCH_SIZE       = 512
-TRAIN_UPDATES    = 2500
-LEARNING_RATE    = 1e-3
-WEIGHT_DECAY     = 1e-4
+TRAIN_UPDATES    = 4000
+LEARNING_RATE    = 5e-4
+WEIGHT_DECAY     = 2e-4
 
 # ==== Dirichlet 噪声（根节点探索用） ====
 DIRICHLET_ALPHA  = 0.06 # 0.30  # α

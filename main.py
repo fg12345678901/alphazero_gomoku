@@ -4,12 +4,14 @@ from selfplay.selfplay import SelfPlayWorker
 from trainer.trainer import Trainer
 from config import *
 from logging_setup import setup_logging
+
 logger = setup_logging()
 
 
 def latest_model():
     files = sorted(glob.glob(os.path.join(MODEL_DIR, "net_*.pt")))
     return files[-1] if files else None
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -24,6 +26,12 @@ def main():
     p_ev = sub.add_parser("evaluate")
     p_ev.add_argument("--num-games", type=int, default=EVAL_GAMES)
 
+    # 用于并行eval，和之前单卡兼容
+    p_ev.add_argument("--out", type=str, default=None,
+                      help="save per-GPU arena result JSON")
+    p_ev.add_argument("--no-update", action="store_true",
+                      help="skip accept/reject and model deletion")
+
     args = parser.parse_args()
 
     if args.cmd == "selfplay":
@@ -36,12 +44,14 @@ def main():
 
     elif args.cmd == "evaluate":
         tr = Trainer()
-        tr.evaluate_and_update(num_games=args.num_games)
+        tr.evaluate_and_update(num_games=args.num_games,
+                               out=args.out,
+                               no_update=args.no_update)
+
 
 if __name__ == "__main__":
     logger.info(f"using device: {DEVICE}")
     main()
-
 
 """
 # 安装依赖

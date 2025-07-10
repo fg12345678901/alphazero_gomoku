@@ -11,7 +11,9 @@ from gomoku.game import GomokuGame
 from network.model import AlphaZeroNet
 from mcts.mcts import MCTS
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 class SelfPlayWorker:
     def __init__(self, net_path: str | None, out_dir: str, num_games: int):
@@ -28,7 +30,9 @@ class SelfPlayWorker:
     def run(self):
         for _ in trange(self.num_games, desc="Self‑play"):
             self.play_single()
-        timestamp = int(time.time())
+        # timestamp = int(time.time())
+        timestamp = f"{int(time.time() * 1000)}_{os.getpid()}"
+
         fname = os.path.join(DATA_DIR, f"selfplay_{timestamp}.pkl")
         with open(fname, "wb") as f:
             pickle.dump(self.examples, f)
@@ -64,6 +68,8 @@ class SelfPlayWorker:
                     # 调用 getSymmetries 来获取所有对称的样本
                     for sym_planes, sym_pi in self.game.getSymmetries(planes, pi):
                         final_examples.append((sym_planes, sym_pi, z))
+
+                        # 如果加的话加这里
 
                 self.examples.extend(final_examples)
                 return

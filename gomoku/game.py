@@ -66,8 +66,6 @@ class GomokuGame:
         return syms
 
     def stringRepresentation(self, board: Board) -> bytes:
-        """Unique hashable representation of a board state."""
-        # Include the current player so identical positions with different
-        # players to move are treated as distinct states by the MCTS.
+        """唯一可哈希的局面表示（含执子信息）"""
         player_byte = bytes([1 if board.current_player == 1 else 0])
         return board.board.tobytes() + player_byte
