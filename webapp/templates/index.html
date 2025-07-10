@@ -67,6 +67,7 @@ let policy = null;
 let currentBoard = null;
 let currentPlayer = 1;
 let awaitingAi = false;
+let gameOver = false;
 let chart = null;
 
 function initChart() {
@@ -148,6 +149,7 @@ function startGame() {
         policy = res.data.policy;
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
+        gameOver = false;
         document.getElementById('status').textContent = '';
         renderBoard(res.data.board, policy);
         valuesElem.textContent = res.data.value_curve.map(v=>v.toFixed(2)).join(', ');
@@ -156,7 +158,7 @@ function startGame() {
 }
 
 function move(x, y) {
-    if (awaitingAi || currentBoard[x][y] !== 0) return;
+    if (gameOver || awaitingAi || currentBoard[x][y] !== 0) return;
     currentBoard[x][y] = currentPlayer;
     currentPlayer = -currentPlayer;
     renderBoard(currentBoard, policy);
@@ -172,7 +174,9 @@ function move(x, y) {
         document.getElementById('status').textContent = '';
         awaitingAi = false;
         if (res.data.winner !== null) {
-            alert(res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局'));
+            gameOver = true;
+            let msg = res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局');
+            document.getElementById('status').innerHTML = msg + ' <button onclick="resetPage()">再来一局</button>';
         }
     }).catch(err => {
         if (err.response) alert(err.response.data.error);
@@ -191,6 +195,10 @@ function undo() {
         updateChart(res.data.value_curve);
         document.getElementById('status').textContent = '';
     }).catch(err => { if (err.response) alert(err.response.data.error); });
+}
+
+function resetPage() {
+    location.reload();
 }
 
 initChart();
