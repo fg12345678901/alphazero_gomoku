@@ -1,6 +1,6 @@
 body {
     font-family: "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
-    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+    background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);
     color: #333;
     display: flex;
     flex-direction: column;
@@ -13,7 +13,8 @@ body {
 h1 {
     margin: 30px 0 10px 0;
     font-weight: 700;
-    color: #333;
+    color: #fff;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
 }
 
 
@@ -31,7 +32,7 @@ h1 {
 }
 
 button {
-    background: #3f51b5;
+    background: #ff7043;
     border: none;
     color: #fff;
     padding: 6px 12px;
@@ -40,7 +41,7 @@ button {
 }
 
 button:hover {
-    background: #32408f;
+    background: #f4511e;
 }
 
 #status {
@@ -51,8 +52,10 @@ button:hover {
 table.board {
     border-collapse: collapse;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    background: #fdf6e3;
+    background: #f8efd5;
     margin-bottom: 10px;
+    border-radius: 6px;
+    overflow: hidden;
 }
 
 td, th {
@@ -82,8 +85,41 @@ td .prob {
 }
 
 .best-move {
-    background-color: #ffe58f;
+    background-color: #ffab91 !important;
 }
+
+.last-black::after,
+.last-white::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.last-black::after {
+    border: 2px solid #e91e63;
+}
+
+.last-white::after {
+    border: 2px solid #2196f3;
+}
+
+.move-num {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    font-size: 10px;
+    color: #000;
+    pointer-events: none;
+}
+
+td.black .move-num { color: #fff; }
+td.white .move-num { color: #000; }
 
 #board {
     margin-top: 10px;

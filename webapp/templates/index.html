@@ -50,6 +50,7 @@ let currentBoard = null;
 let currentPlayer = 1;
 let awaitingAi = false;
 let gameOver = false;
+let moveHistory = [];
 let chart = null;
 
 function describeAdvantage(v) {
@@ -93,28 +94,60 @@ function renderBoard(board, probs) {
     let html = '<table class="board"><tr><th></th>';
     for (let j=0;j<size;j++) html += `<th>${j+1}</th>`;
     html += '</tr>';
+
     let best = {x:-1,y:-1,p:0};
+    let maxProb = 0;
     if (probs) {
         for (let i=0;i<size;i++) {
             for (let j=0;j<size;j++) {
-                if (board[i][j]===0 && probs[i][j] > best.p) {
-                    best = {x:i,y:j,p:probs[i][j]};
+                if (board[i][j]===0) {
+                    if (probs[i][j] > best.p) best = {x:i,y:j,p:probs[i][j]};
+                    if (probs[i][j] > maxProb) maxProb = probs[i][j];
                 }
             }
         }
     }
+
+    const moveNumbers = {};
+    let lastBlack = null, lastWhite = null;
+    moveHistory.forEach((m, idx) => {
+        const x = Math.floor(m / size);
+        const y = m % size;
+        moveNumbers[`${x},${y}`] = idx + 1;
+        if (idx % 2 === 0) lastBlack = {x, y};
+        else lastWhite = {x, y};
+    });
+
     for (let i=0;i<size;i++) {
         html += `<tr><th>${i+1}</th>`;
         for (let j=0;j<size;j++) {
             let v = board[i][j];
             let text = v===1?'●':(v===-1?'○':'');
             let probText = '';
+            let style = '';
             if (v===0 && probs && showProb) {
-                let p = probs[i][j] * 100;
-                probText = `<span class="prob">${p.toFixed(1)}</span>`;
+                let p = probs[i][j];
+                probText = `<span class="prob">${(p*100).toFixed(1)}</span>`;
+                let ratio = maxProb ? p / maxProb : 0;
+                if (i===best.x && j===best.y) {
+                    style = 'background-color:#ff8a65;';
+                } else if (p > 0) {
+                    let light = 90 - 50 * ratio;
+                    style = `background-color:hsl(40,100%,${light}%)`;
+                }
+            } else if (i===best.x && j===best.y && probs) {
+                style = 'background-color:#ff8a65;';
             }
-            let cls = (i===best.x && j===best.y && probs)?'best-move':'';
-            html += `<td class="${cls}" data-x="${i}" data-y="${j}">${text}${probText}</td>`;
+
+            let cls = '';
+            if (v===1) cls += ' black';
+            if (v===-1) cls += ' white';
+            if (i===lastBlack?.x && j===lastBlack?.y) cls += ' last-black';
+            if (i===lastWhite?.x && j===lastWhite?.y) cls += ' last-white';
+            let num = moveNumbers[`${i},${j}`];
+            let numHtml = num?`<span class="move-num">${num}</span>`:'';
+
+            html += `<td class="${(i===best.x && j===best.y && probs)?'best-move ':''}${cls.trim()}" style="${style}" data-x="${i}" data-y="${j}">${text}${numHtml}${probText}</td>`;
         }
         html += '</tr>';
     }
@@ -137,6 +170,7 @@ function startGame() {
         policy = res.data.policy;
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
+        moveHistory = res.data.history || [];
         gameOver = false;
         document.getElementById('status').textContent = '';
         renderBoard(res.data.board, policy);
@@ -150,6 +184,7 @@ function move(x, y) {
     if (gameOver || awaitingAi || currentBoard[x][y] !== 0) return;
     currentBoard[x][y] = currentPlayer;
     currentPlayer = -currentPlayer;
+    moveHistory.push(x*size + y);
     renderBoard(currentBoard, policy);
     awaitingAi = true;
     document.getElementById('status').textContent = 'AI 思考中...';
@@ -157,6 +192,7 @@ function move(x, y) {
         policy = res.data.policy;
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
+        moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
         const lastMoveVal = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(lastMoveVal);
@@ -180,6 +216,7 @@ function undo() {
         policy = res.data.policy;
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
+        moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
         const v = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(v);
