@@ -40,7 +40,7 @@ body.neon {
     --black-piece: radial-gradient(circle at 30% 30%, #333, #000);
     --white-piece: radial-gradient(circle at 30% 30%, #fafafa, #ddd);
     --panel-bg: rgba(255, 255, 255, 0.1);
-    --prob-color: #fff;
+    --prob-color: #ffeb3b;
 }
 
 body.dark {
@@ -56,7 +56,7 @@ body.dark {
     --black-piece: radial-gradient(circle at 30% 30%, #ddd, #000);
     --white-piece: radial-gradient(circle at 30% 30%, #eee, #666);
     --panel-bg: rgba(0, 0, 0, 0.4);
-    --prob-color: #fff;
+    --prob-color: #ffeb3b;
 }
 
 h1 {
