@@ -28,6 +28,7 @@
         <input id="sims" type="number" value="600" style="width:70px;">
     </label>
     <label><input type="checkbox" id="show_prob" checked>显示概率</label>
+    <label><input type="checkbox" id="dark_mode">暗黑模式</label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
 </div>
@@ -235,6 +236,20 @@ function resetPage() {
 }
 
 initChart();
+// 恢复主题
+if (localStorage.getItem('darkMode') === 'on') {
+    document.body.classList.add('dark');
+    document.getElementById('dark_mode').checked = true;
+}
+document.getElementById('dark_mode').addEventListener('change', (e) => {
+    if(e.target.checked) {
+        document.body.classList.add('dark');
+        localStorage.setItem('darkMode','on');
+    } else {
+        document.body.classList.remove('dark');
+        localStorage.setItem('darkMode','off');
+    }
+});
 </script>
 </div>
 </body>
