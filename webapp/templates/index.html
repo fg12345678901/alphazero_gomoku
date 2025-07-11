@@ -283,9 +283,40 @@ function startGame() {
         updateChart(res.data.value_curve);
         updateHistory();
         updateScoreboard();
+        if (document.getElementById('mode').value === 'ai_ai') {
+            setTimeout(autoPlay, 500);
+        }
     });
 }
 
+function autoPlay() {
+    if (gameOver || awaitingAi || document.getElementById('mode').value !== 'ai_ai') return;
+    awaitingAi = true;
+    axios.post('/ai_step').then(res => {
+        policy = res.data.policy;
+        currentBoard = res.data.board;
+        currentPlayer = res.data.current_player;
+        moveHistory = res.data.history || [];
+        renderBoard(res.data.board, policy);
+        updateHistory();
+        updateScoreboard();
+        const v = res.data.value_curve[res.data.value_curve.length-1];
+        valuesElem.textContent = describeAdvantage(v);
+        updateChart(res.data.value_curve);
+        awaitingAi = false;
+        if (res.data.winner !== null) {
+            gameOver = true;
+            let msg = res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局');
+            document.getElementById('status').innerHTML = msg + ' <button onclick="resetPage()">再来一局</button>';
+            celebrate(res.data.winner);
+        } else {
+            setTimeout(autoPlay, 500);
+        }
+    }).catch(err => {
+        awaitingAi = false;
+        if (err.response) alert(err.response.data.error);
+    });
+}
 function move(x, y) {
     if (gameOver || awaitingAi || currentBoard[x][y] !== 0) return;
     currentBoard[x][y] = currentPlayer;

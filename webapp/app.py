@@ -106,6 +106,23 @@ def ai_move():
     VALUE_CURVE.append(value * BOARD.current_player)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
 
+@app.route('/ai_step', methods=['POST'])
+def ai_step():
+    """在 AI 对战模式下执行一步 AI 行棋"""
+    global BOARD, HISTORY, VALUE_CURVE, POLICY
+    if MODE != 'ai_ai':
+        return jsonify(error='invalid mode'), 400
+    if BOARD.get_winner() is not None:
+        return jsonify(error='game over'), 400
+    ai_move()
+    winner = BOARD.get_winner()
+    return jsonify(board=BOARD.board.tolist(),
+                   current_player=int(BOARD.current_player),
+                   history=HISTORY,
+                   value_curve=VALUE_CURVE,
+                   policy=POLICY,
+                   winner=winner)
+
 @app.route('/move', methods=['POST'])
 def make_move():
     global BOARD, HISTORY, VALUE_CURVE, POLICY
