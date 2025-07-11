@@ -239,6 +239,7 @@ td.white .move-num { color: #000; }
 
 #board {
     margin-top: 10px;
+    flex-shrink: 0;
 }
 
 .game-area {
@@ -246,10 +247,12 @@ td.white .move-num { color: #000; }
     flex-direction: column;
     align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
 }
 
 .chart-container {
     width: 420px;
+    max-width: 100%;
     margin-top: 20px;
     background: var(--bg-end);
     padding: 10px;
@@ -259,6 +262,7 @@ td.white .move-num { color: #000; }
 
 .history-container {
     width: 420px;
+    max-width: 100%;
     margin-top: 20px;
     background: var(--bg-end);
     padding: 10px;
@@ -298,9 +302,12 @@ td.white .move-num { color: #000; }
     .game-area {
         flex-direction: row;
         align-items: flex-start;
+        flex-wrap: wrap;
+        justify-content: center;
     }
     #board {
         margin-right: 20px;
         margin-top: 0;
+        margin-bottom: 20px;
     }
 }
