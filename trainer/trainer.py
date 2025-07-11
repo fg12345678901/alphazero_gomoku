@@ -3,6 +3,7 @@ from __future__ import annotations
 import os, glob, time, pickle, json
 import torch
 import torch.optim as optim
+import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import trange
 
@@ -18,6 +19,12 @@ class Trainer:
     def __init__(self):
         os.makedirs(MODEL_DIR, exist_ok=True)
         self.net = AlphaZeroNet().to(DEVICE)
+
+        # ---------- 开启 DataParallel（多 GPU 才包裹） ----------
+        if DEVICE == "cuda" and torch.cuda.device_count() > 1:
+            self.net = nn.DataParallel(self.net)
+            logger.info(f"DataParallel enabled · {torch.cuda.device_count()} GPUs")
+
         self.optimizer = optim.Adam(self.net.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
         self.buffer = ReplayBuffer()
         self.step = 0
@@ -88,7 +95,10 @@ class Trainer:
     # ----------------- 模型管理 ----------------- #
     def _save_model(self):
         fname = os.path.join(MODEL_DIR, f"net_{int(time.time())}.pt")
-        torch.save(self.net.state_dict(), fname)
+        # torch.save(self.net.state_dict(), fname)
+        state = self.net.module.state_dict() if hasattr(self.net, "module") else self.net.state_dict()
+        torch.save(state, fname)
+
         logger.info(f"Model saved to {fname}")
 
     def _latest_model_path(self):
@@ -102,5 +112,8 @@ class Trainer:
     def _load_latest_model(self):
         path = self._latest_model_path()
         if path:
-            self.net.load_state_dict(torch.load(path, map_location=DEVICE))
+            # self.net.load_state_dict(torch.load(path, map_location=DEVICE))
+            target = self.net.module if hasattr(self.net, "module") else self.net
+            target.load_state_dict(torch.load(path, map_location=DEVICE))
+            
             logger.info(f"Loaded model {path}")
