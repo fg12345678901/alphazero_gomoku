@@ -2,11 +2,13 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AlphaZero 五子棋</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+<div class="app">
 <h1>AlphaZero 五子棋</h1>
 <div class="controls">
     <label>模式:
@@ -234,5 +236,6 @@ function resetPage() {
 
 initChart();
 </script>
+</div>
 </body>
 </html>
