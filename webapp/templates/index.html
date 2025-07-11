@@ -37,15 +37,17 @@
 <div class="game-area">
     <div id="board"></div>
     <div id="status"></div>
-    <div class="chart-container">
-        <h3>AI 价值估计</h3>
-        <p id="values"></p>
-        <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
-        <canvas id="valueChart" width="400" height="200"></canvas>
-    </div>
-    <div class="history-container">
-        <h3>走子记录 <button id="copyHistory" class="copy-btn" onclick="copyHistory()">复制</button></h3>
-        <ol id="historyList"></ol>
+    <div class="side-panels">
+        <div class="chart-container">
+            <h3>AI 价值估计</h3>
+            <p id="values"></p>
+            <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
+            <canvas id="valueChart" width="400" height="200"></canvas>
+        </div>
+        <div class="history-container">
+            <h3>走子记录 <button id="copyHistory" class="copy-btn" onclick="copyHistory()">复制</button></h3>
+            <ol id="historyList"></ol>
+        </div>
     </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>

@@ -113,6 +113,8 @@ button:active {
     margin-top: 10px;
     color: #d33;
     font-weight: bold;
+    text-align: center;
+    flex-basis: 100%;
 }
 
 table.board {
@@ -250,6 +252,14 @@ td.white .move-num { color: #000; }
     flex-wrap: wrap;
 }
 
+.side-panels {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 420px;
+    max-width: 100%;
+}
+
 .chart-container {
     width: 420px;
     max-width: 100%;
@@ -309,5 +319,8 @@ td.white .move-num { color: #000; }
         margin-right: 20px;
         margin-top: 0;
         margin-bottom: 20px;
+    }
+    .side-panels {
+        margin-left: 20px;
     }
 }
