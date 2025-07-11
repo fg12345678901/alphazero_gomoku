@@ -18,8 +18,11 @@ app = Flask(__name__)
 
 # ---------------- 工具函数 ----------------
 def latest_model():
-    files = sorted(glob.glob(os.path.join('models', 'net_*.pt')))
-    return files[-1] if files else None
+    files = glob.glob(os.path.join('models', 'net_*.pt'))
+    if not files:
+        return None
+    files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
+    return files[-1]
 
 def evaluate(net, game, board):
     planes = game.getCanonicalForm(board, board.current_player)
