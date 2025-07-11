@@ -8,7 +8,6 @@ while true; do
 
   # ------- DataParallel训练 -------
   CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py train --updates 4000
-  # CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py train --updates 4000
 
   # ------- 并行 Arena -------
   bash utils/eval_parallel.sh 104 0 1 2 3

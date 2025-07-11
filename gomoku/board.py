@@ -39,6 +39,16 @@ class Board:
         self.move_history.append(move)
         self.current_player *= -1
 
+    def undo_move(self) -> int | None:
+        """悔棋：撤销最后一步落子，返回该手。"""
+        if not self.move_history:
+            return None
+        last = self.move_history.pop()
+        x, y = self.move_to_coord(last)
+        self.board[x, y] = 0
+        self.current_player *= -1
+        return last
+
     # ---------- 终局判定 ---------- #
     def _check_dir(self, x, y, dx, dy, player) -> bool:
         """检查方向 (dx,dy) 上是否有 n 连"""

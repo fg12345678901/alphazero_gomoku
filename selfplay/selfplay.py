@@ -11,9 +11,7 @@ from gomoku.game import GomokuGame
 from network.model import AlphaZeroNet
 from mcts.mcts import MCTS
 import logging
-
 logger = logging.getLogger(__name__)
-
 
 class SelfPlayWorker:
     def __init__(self, net_path: str | None, out_dir: str, num_games: int):
@@ -32,8 +30,8 @@ class SelfPlayWorker:
         for _ in trange(self.num_games, desc="Self‑play"):
             self.play_single()
         # timestamp = int(time.time())
-        timestamp = f"{int(time.time() * 1000)}_{os.getpid()}"
-
+        timestamp = f"{int(time.time()*1000)}_{os.getpid()}"
+        
         fname = os.path.join(DATA_DIR, f"selfplay_{timestamp}.pkl")
         with open(fname, "wb") as f:
             pickle.dump(self.examples, f)
@@ -71,6 +69,12 @@ class SelfPlayWorker:
                         final_examples.append((sym_planes, sym_pi, z))
 
                         # 如果加的话加这里
+                        #### 尝试仅翻转第三层
+                        planes_turn_flipped = sym_planes.copy()
+                        planes_turn_flipped[2] *= -1  # invert the constant turn plane
+                        #    π and z are kept IDENTICAL per user request
+                        final_examples.append((planes_turn_flipped, sym_pi, z))
+                        # logger.info("数据增强使用翻转黑白棋")                        
 
                 self.examples.extend(final_examples)
                 return

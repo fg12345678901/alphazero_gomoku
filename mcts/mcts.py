@@ -18,9 +18,10 @@ class TreeNode:
         self.children: Dict[int, TreeNode] = {}
 
 class MCTS:
-    def __init__(self, game, net: AlphaZeroNet):
+    def __init__(self, game, net: AlphaZeroNet, sims: int = MCTS_SIMS):
         self.game = game
         self.net  = net
+        self.sims = sims
         self.Qsa   = {}  # (s,a) -> Q
         self.Nsa   = {}  # (s,a) -> N
         self.Ns    = {}  # s -> N
@@ -46,7 +47,7 @@ class MCTS:
             self._add_dirichlet_noise(s_root)
 
         # ------------ 正常的蒙特卡洛树搜索 -------------
-        for _ in range(MCTS_SIMS):
+        for _ in range(self.sims):
             self.search(board)
 
         s = self.game.stringRepresentation(board)

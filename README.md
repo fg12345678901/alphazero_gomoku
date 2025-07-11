@@ -46,3 +46,15 @@ bash loop_mult.sh
 
 `loop_mult.sh` 会调用 `utils/selfplay_parallel.sh` 与 `utils/eval_parallel.sh` 在多卡上并行完成自对弈与评测，并使用 `DataParallel` 进行训练。根据硬件环境可调整脚本中的 GPU 编号及局数、更新次数等参数。
 
+
+## 网页对弈
+
+项目附带一个简单的 Flask 前端，可用于和 AI 或其他玩家在浏览器中对弈。
+
+```bash
+# 启动服务器
+python -m webapp.app
+```
+
+默认会尝试加载 `models/` 目录下最新的网络参数，如无模型将使用随机初始化的网络。
+启动后在浏览器访问 `http://localhost:5000` 即可。
