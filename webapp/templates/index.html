@@ -70,7 +70,7 @@ function updateHistory() {
         const x = Math.floor(m / size) + 1;
         const y = m % size + 1;
         const li = document.createElement('li');
-        li.textContent = `${idx + 1}. (${x},${y})`;
+        li.textContent = `(${x},${y})`;
         list.appendChild(li);
     });
 }
