@@ -29,10 +29,10 @@
         <input id="sims" type="number" value="600" style="width:70px;">
     </label>
     <label><input type="checkbox" id="show_prob" checked>显示概率</label>
-    <label><input type="checkbox" id="dark_mode">暗黑模式</label>
     <label>主题:
         <select id="theme">
             <option value="default">经典</option>
+            <option value="dark">暗黑</option>
             <option value="neon">霓虹</option>
         </select>
     </label>
@@ -166,18 +166,22 @@ document.getElementById('show_prob').addEventListener('change', () => {
 });
 
 // 恢复主题样式
-if (localStorage.getItem('theme') === 'neon') {
+const savedTheme = localStorage.getItem('theme') || 'default';
+if (savedTheme === 'neon') {
     document.body.classList.add('neon');
     document.getElementById('theme').value = 'neon';
+} else if (savedTheme === 'dark') {
+    document.body.classList.add('dark');
+    document.getElementById('theme').value = 'dark';
 }
 document.getElementById('theme').addEventListener('change', (e) => {
+    document.body.classList.remove('neon', 'dark');
     if (e.target.value === 'neon') {
         document.body.classList.add('neon');
-        localStorage.setItem('theme','neon');
-    } else {
-        document.body.classList.remove('neon');
-        localStorage.setItem('theme','default');
+    } else if (e.target.value === 'dark') {
+        document.body.classList.add('dark');
     }
+    localStorage.setItem('theme', e.target.value);
 });
 
 function updateChart(values) {
@@ -341,20 +345,6 @@ function resetPage() {
 initChart();
 updateHistory();
 updateScoreboard();
-// 恢复主题
-if (localStorage.getItem('darkMode') === 'on') {
-    document.body.classList.add('dark');
-    document.getElementById('dark_mode').checked = true;
-}
-document.getElementById('dark_mode').addEventListener('change', (e) => {
-    if(e.target.checked) {
-        document.body.classList.add('dark');
-        localStorage.setItem('darkMode','on');
-    } else {
-        document.body.classList.remove('dark');
-        localStorage.setItem('darkMode','off');
-    }
-});
 </script>
 </div>
 </body>
