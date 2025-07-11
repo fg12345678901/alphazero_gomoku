@@ -11,6 +11,7 @@
     --black-piece: radial-gradient(circle at 30% 30%, #666, #000);
     --white-piece: radial-gradient(circle at 30% 30%, #fff, #ddd);
     --panel-bg: rgba(255, 255, 255, 0.9);
+    --prob-color: #000;
 }
 
 body {
@@ -39,6 +40,7 @@ body.dark {
     --black-piece: radial-gradient(circle at 30% 30%, #ddd, #000);
     --white-piece: radial-gradient(circle at 30% 30%, #eee, #666);
     --panel-bg: rgba(0, 0, 0, 0.4);
+    --prob-color: #fff;
 }
 
 h1 {
@@ -174,8 +176,9 @@ td .prob {
     bottom: 2px;
     right: 2px;
     font-size: 10px;
-    color: var(--text-color);
-    opacity: 0.7;
+    color: var(--prob-color);
+    opacity: 0.8;
+    font-weight: bold;
 }
 
 .best-move {
