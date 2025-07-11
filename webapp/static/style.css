@@ -27,6 +27,22 @@ body {
     transition: background 0.3s ease, color 0.3s ease;
 }
 
+body.neon {
+    --bg-start: #0f0c29;
+    --bg-end: #302b63;
+    --text-color: #fff;
+    --board-light: #2d284b;
+    --board-dark: #393175;
+    --board-hover: #52489c;
+    --board-line: #5c5cde;
+    --button-start: #ff6ec4;
+    --button-end: #7873f5;
+    --black-piece: radial-gradient(circle at 30% 30%, #333, #000);
+    --white-piece: radial-gradient(circle at 30% 30%, #fafafa, #ddd);
+    --panel-bg: rgba(255, 255, 255, 0.1);
+    --prob-color: #fff;
+}
+
 body.dark {
     --bg-start: #1f1f1f;
     --bg-end: #2c2c2c;
@@ -245,6 +261,26 @@ td .prob {
 
 td.black .move-num { color: #fff; }
 td.white .move-num { color: #000; }
+
+.scoreboard {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    font-size: 18px;
+    margin-bottom: 6px;
+}
+
+.scoreboard .player {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: bold;
+    transition: transform 0.3s;
+}
+
+.scoreboard .active {
+    transform: scale(1.2);
+}
 
 #board {
     margin-top: 10px;

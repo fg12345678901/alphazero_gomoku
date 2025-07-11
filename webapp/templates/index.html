@@ -30,12 +30,22 @@
     </label>
     <label><input type="checkbox" id="show_prob" checked>显示概率</label>
     <label><input type="checkbox" id="dark_mode">暗黑模式</label>
+    <label>主题:
+        <select id="theme">
+            <option value="default">经典</option>
+            <option value="neon">霓虹</option>
+        </select>
+    </label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
     <button onclick="downloadBoard()">下载棋盘</button>
 </div>
 <div class="game-area">
     <div id="board"></div>
+    <div class="scoreboard">
+        <div class="player" id="blackPlayer">● <span id="blackCount">0</span></div>
+        <div class="player" id="whitePlayer">○ <span id="whiteCount">0</span></div>
+    </div>
     <div id="status"></div>
     <div class="side-panels">
         <div class="chart-container">
@@ -92,6 +102,20 @@ function updateHistory() {
     });
 }
 
+function updateScoreboard() {
+    let black = 0, white = 0;
+    for (let i=0;i<size;i++) {
+        for (let j=0;j<size;j++) {
+            if (currentBoard[i][j] === 1) black++;
+            else if (currentBoard[i][j] === -1) white++;
+        }
+    }
+    document.getElementById('blackCount').textContent = black;
+    document.getElementById('whiteCount').textContent = white;
+    document.getElementById('blackPlayer').classList.toggle('active', currentPlayer === 1);
+    document.getElementById('whitePlayer').classList.toggle('active', currentPlayer === -1);
+}
+
 function copyHistory() {
     const text = moveHistory.map((m, idx) => {
         const x = Math.floor(m / size) + 1;
@@ -139,6 +163,21 @@ function initChart() {
 }
 document.getElementById('show_prob').addEventListener('change', () => {
     if(currentBoard) renderBoard(currentBoard, policy);
+});
+
+// 恢复主题样式
+if (localStorage.getItem('theme') === 'neon') {
+    document.body.classList.add('neon');
+    document.getElementById('theme').value = 'neon';
+}
+document.getElementById('theme').addEventListener('change', (e) => {
+    if (e.target.value === 'neon') {
+        document.body.classList.add('neon');
+        localStorage.setItem('theme','neon');
+    } else {
+        document.body.classList.remove('neon');
+        localStorage.setItem('theme','default');
+    }
 });
 
 function updateChart(values) {
@@ -218,6 +257,7 @@ function renderBoard(board, probs) {
             move(td.dataset.x, td.dataset.y);
         });
     });
+    updateScoreboard();
 }
 
 function startGame() {
@@ -238,6 +278,7 @@ function startGame() {
         valuesElem.textContent = describeAdvantage(last);
         updateChart(res.data.value_curve);
         updateHistory();
+        updateScoreboard();
     });
 }
 
@@ -248,6 +289,7 @@ function move(x, y) {
     moveHistory.push(x*size + y);
     renderBoard(currentBoard, policy);
     updateHistory();
+    updateScoreboard();
     awaitingAi = true;
     document.getElementById('status').textContent = 'AI 思考中...';
     axios.post('/move', {x: x, y: y}).then(res => {
@@ -257,6 +299,7 @@ function move(x, y) {
         moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
         updateHistory();
+        updateScoreboard();
         const lastMoveVal = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(lastMoveVal);
         updateChart(res.data.value_curve);
@@ -283,6 +326,7 @@ function undo() {
         moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
         updateHistory();
+        updateScoreboard();
         const v = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(v);
         updateChart(res.data.value_curve);
@@ -296,6 +340,7 @@ function resetPage() {
 
 initChart();
 updateHistory();
+updateScoreboard();
 // 恢复主题
 if (localStorage.getItem('darkMode') === 'on') {
     document.body.classList.add('dark');
