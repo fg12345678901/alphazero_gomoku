@@ -53,6 +53,7 @@
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script>
 let size = {{ size }};
 let boardElem = document.getElementById('board');
@@ -64,6 +65,19 @@ let awaitingAi = false;
 let gameOver = false;
 let moveHistory = [];
 let chart = null;
+
+function celebrate(winner) {
+    const colors = winner === 1 ? ['#000', '#ffc107'] :
+                    winner === -1 ? ['#fff', '#2196f3'] : ['#888', '#ccc'];
+    for (let i = 0; i < 3; i++) {
+        confetti({
+            particleCount: 80,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: colors
+        });
+    }
+}
 
 function updateHistory() {
     const list = document.getElementById('historyList');
@@ -252,6 +266,7 @@ function move(x, y) {
             gameOver = true;
             let msg = res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局');
             document.getElementById('status').innerHTML = msg + ' <button onclick="resetPage()">再来一局</button>';
+            celebrate(res.data.winner);
         }
     }).catch(err => {
         if (err.response) alert(err.response.data.error);
