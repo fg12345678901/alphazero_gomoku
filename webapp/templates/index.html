@@ -31,6 +31,7 @@
     <label><input type="checkbox" id="dark_mode">暗黑模式</label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
+    <button onclick="downloadBoard()">下载棋盘</button>
 </div>
 <div class="game-area">
     <div id="board"></div>
@@ -41,9 +42,14 @@
         <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
         <canvas id="valueChart" width="400" height="200"></canvas>
     </div>
+    <div class="history-container">
+        <h3>走子记录 <button id="copyHistory" class="copy-btn" onclick="copyHistory()">复制</button></h3>
+        <ol id="historyList"></ol>
+    </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 let size = {{ size }};
 let boardElem = document.getElementById('board');
@@ -55,6 +61,37 @@ let awaitingAi = false;
 let gameOver = false;
 let moveHistory = [];
 let chart = null;
+
+function updateHistory() {
+    const list = document.getElementById('historyList');
+    if (!list) return;
+    list.innerHTML = '';
+    moveHistory.forEach((m, idx) => {
+        const x = Math.floor(m / size) + 1;
+        const y = m % size + 1;
+        const li = document.createElement('li');
+        li.textContent = `${idx + 1}. (${x},${y})`;
+        list.appendChild(li);
+    });
+}
+
+function copyHistory() {
+    const text = moveHistory.map((m, idx) => {
+        const x = Math.floor(m / size) + 1;
+        const y = m % size + 1;
+        return `${idx + 1}.(${x},${y})`;
+    }).join(' ');
+    navigator.clipboard.writeText(text);
+}
+
+function downloadBoard() {
+    html2canvas(document.getElementById('board')).then(canvas => {
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'board.png';
+        link.click();
+    });
+}
 
 function describeAdvantage(v) {
     if (v > 0) return '黑棋优势(●)';
@@ -183,6 +220,7 @@ function startGame() {
         const last = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(last);
         updateChart(res.data.value_curve);
+        updateHistory();
     });
 }
 
@@ -192,6 +230,7 @@ function move(x, y) {
     currentPlayer = -currentPlayer;
     moveHistory.push(x*size + y);
     renderBoard(currentBoard, policy);
+    updateHistory();
     awaitingAi = true;
     document.getElementById('status').textContent = 'AI 思考中...';
     axios.post('/move', {x: x, y: y}).then(res => {
@@ -200,6 +239,7 @@ function move(x, y) {
         currentPlayer = res.data.current_player;
         moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
+        updateHistory();
         const lastMoveVal = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(lastMoveVal);
         updateChart(res.data.value_curve);
@@ -224,6 +264,7 @@ function undo() {
         currentPlayer = res.data.current_player;
         moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
+        updateHistory();
         const v = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(v);
         updateChart(res.data.value_curve);
@@ -236,6 +277,7 @@ function resetPage() {
 }
 
 initChart();
+updateHistory();
 // 恢复主题
 if (localStorage.getItem('darkMode') === 'on') {
     document.body.classList.add('dark');
