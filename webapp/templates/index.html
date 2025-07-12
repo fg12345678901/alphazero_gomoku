@@ -184,6 +184,20 @@ document.getElementById('theme').addEventListener('change', (e) => {
     localStorage.setItem('theme', e.target.value);
 });
 
+function addHoverEffects() {
+    document.querySelectorAll('#board td').forEach(td => {
+        td.addEventListener('mouseenter', () => {
+            const x = td.dataset.x;
+            const y = td.dataset.y;
+            document.querySelectorAll(`#board td[data-x='${x}']`).forEach(el => el.classList.add('hover-row'));
+            document.querySelectorAll(`#board td[data-y='${y}']`).forEach(el => el.classList.add('hover-col'));
+        });
+        td.addEventListener('mouseleave', () => {
+            document.querySelectorAll('#board td').forEach(el => el.classList.remove('hover-row', 'hover-col'));
+        });
+    });
+}
+
 function updateChart(values) {
     if (!chart) return;
     chart.data.labels = values.map((_, i) => i);
@@ -261,6 +275,7 @@ function renderBoard(board, probs) {
             move(td.dataset.x, td.dataset.y);
         });
     });
+    addHoverEffects();
     updateScoreboard();
 }
 
