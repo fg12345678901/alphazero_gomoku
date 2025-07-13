@@ -117,15 +117,20 @@ function updateHistory() {
 }
 
 function updateScoreboard() {
-    let black = 0, white = 0;
-    for (let i=0;i<size;i++) {
-        for (let j=0;j<size;j++) {
-            if (currentBoard[i][j] === 1) black++;
-            else if (currentBoard[i][j] === -1) white++;
+    if (!currentBoard) {
+        document.getElementById('blackCount').textContent = 0;
+        document.getElementById('whiteCount').textContent = 0;
+    } else {
+        let black = 0, white = 0;
+        for (let i=0;i<size;i++) {
+            for (let j=0;j<size;j++) {
+                if (currentBoard[i][j] === 1) black++;
+                else if (currentBoard[i][j] === -1) white++;
+            }
         }
+        document.getElementById('blackCount').textContent = black;
+        document.getElementById('whiteCount').textContent = white;
     }
-    document.getElementById('blackCount').textContent = black;
-    document.getElementById('whiteCount').textContent = white;
     document.getElementById('blackPlayer').classList.toggle('active', currentPlayer === 1);
     document.getElementById('whitePlayer').classList.toggle('active', currentPlayer === -1);
 }
