@@ -38,8 +38,20 @@
     </label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
-    <button onclick="analyzeBoard()">深度分析</button>
+    <button onclick="openAnalyzeModal()">深度分析</button>
     <button onclick="downloadBoard()">下载棋盘</button>
+</div>
+<!-- 深度分析模态框 -->
+<div id="modalBackdrop" class="modal-backdrop"></div>
+<div id="analyzeModal" class="modal">
+    <h3>深度分析</h3>
+    <div>
+        <label>搜索次数: <input id="analyzeSims" type="number" min="1" style="width:80px"></label>
+    </div>
+    <div class="modal-actions">
+        <button id="analyzeCancel">取消</button>
+        <button id="analyzeConfirm">确定</button>
+    </div>
 </div>
 <div class="game-area">
     <div id="board"></div>
@@ -348,11 +360,19 @@ function autoPlay() {
     });
 }
 
-function analyzeBoard() {
+function openAnalyzeModal() {
     if (!currentBoard || awaitingAi) return;
-    const def = document.getElementById('sims').value;
-    let sims = prompt('搜索次数', def);
-    if (!sims) return;
+    document.getElementById('analyzeSims').value = document.getElementById('sims').value;
+    document.getElementById('analyzeModal').style.display = 'block';
+    document.getElementById('modalBackdrop').style.display = 'block';
+}
+
+function closeAnalyzeModal() {
+    document.getElementById('analyzeModal').style.display = 'none';
+    document.getElementById('modalBackdrop').style.display = 'none';
+}
+
+function performAnalyze(sims) {
     document.getElementById('status').textContent = '分析中...';
     axios.post('/analyze', {sims: sims}).then(res => {
         policy = res.data.policy;
@@ -434,6 +454,12 @@ function resetPage() {
 initChart();
 updateHistory();
 updateScoreboard();
+document.getElementById('analyzeConfirm').addEventListener('click', () => {
+    const sims = document.getElementById('analyzeSims').value;
+    closeAnalyzeModal();
+    if (sims) performAnalyze(sims);
+});
+document.getElementById('analyzeCancel').addEventListener('click', closeAnalyzeModal);
 </script>
 </div>
 </body>
