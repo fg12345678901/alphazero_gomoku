@@ -38,6 +38,7 @@
     </label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
+    <button onclick="analyzeBoard()">深度分析</button>
     <button onclick="downloadBoard()">下载棋盘</button>
 </div>
 <div class="game-area">
@@ -75,6 +76,7 @@ let awaitingAi = false;
 let gameOver = false;
 let moveHistory = [];
 let chart = null;
+let analysisPoints = [];
 
 function celebrate(winner) {
     const colors = winner === 1 ? ['#000', '#ffc107'] :
@@ -153,6 +155,17 @@ function initChart() {
                 backgroundColor: 'rgba(66,165,245,0.2)',
                 fill: true,
                 tension: 0.3
+            }, {
+                label: '搜索评估',
+                data: [],
+                borderColor: '#fdd835',
+                backgroundColor: '#fff',
+                pointBorderColor: '#fdd835',
+                pointBackgroundColor: '#fff',
+                pointRadius: 5,
+                pointHoverRadius: 5,
+                borderWidth: 2,
+                showLine: false
             }]
         },
         options: {
@@ -202,6 +215,7 @@ function updateChart(values) {
     if (!chart) return;
     chart.data.labels = values.map((_, i) => i);
     chart.data.datasets[0].data = values;
+    chart.data.datasets[1].data = analysisPoints.filter(p => p.x < values.length);
     chart.update();
 }
 
@@ -291,6 +305,7 @@ function startGame() {
         currentPlayer = res.data.current_player;
         moveHistory = res.data.history || [];
         gameOver = false;
+        analysisPoints = [];
         document.getElementById('status').textContent = '';
         renderBoard(res.data.board, policy);
         const last = res.data.value_curve[res.data.value_curve.length-1];
@@ -332,6 +347,26 @@ function autoPlay() {
         if (err.response) alert(err.response.data.error);
     });
 }
+
+function analyzeBoard() {
+    if (!currentBoard || awaitingAi) return;
+    const def = document.getElementById('sims').value;
+    let sims = prompt('搜索次数', def);
+    if (!sims) return;
+    document.getElementById('status').textContent = '分析中...';
+    axios.post('/analyze', {sims: sims}).then(res => {
+        policy = res.data.policy;
+        renderBoard(currentBoard, policy);
+        const idx = chart.data.datasets[0].data.length - 1;
+        analysisPoints.push({x: idx, y: res.data.value});
+        chart.data.datasets[1].data = analysisPoints;
+        chart.update();
+        document.getElementById('status').textContent = '';
+    }).catch(err => {
+        if (err.response) alert(err.response.data.error);
+        document.getElementById('status').textContent = '';
+    });
+}
 function move(x, y) {
     if (gameOver || awaitingAi || currentBoard[x][y] !== 0) return;
     currentBoard[x][y] = currentPlayer;
@@ -341,6 +376,13 @@ function move(x, y) {
     updateHistory();
     updateScoreboard();
     awaitingAi = true;
+    // 先获取先验概率用于展示
+    axios.post('/prior', {x: x, y: y}).then(res => {
+        if(awaitingAi) {
+            policy = res.data.policy;
+            renderBoard(currentBoard, policy);
+        }
+    });
     document.getElementById('status').textContent = 'AI 思考中...';
     axios.post('/move', {x: x, y: y}).then(res => {
         policy = res.data.policy;
@@ -379,6 +421,7 @@ function undo() {
         updateScoreboard();
         const v = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(v);
+        analysisPoints = analysisPoints.filter(p => p.x < res.data.value_curve.length);
         updateChart(res.data.value_curve);
         document.getElementById('status').textContent = '';
     }).catch(err => { if (err.response) alert(err.response.data.error); });

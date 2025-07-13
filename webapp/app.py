@@ -5,6 +5,7 @@ from flask import Flask, render_template, request, jsonify
 import numpy as np
 import torch
 import glob
+from copy import deepcopy
 
 # Ensure local modules take precedence over any installed packages
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -94,6 +95,19 @@ def get_state():
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
                    winner=winner)
+
+# 对当前棋盘进行网络前向，返回先验概率
+@app.route('/prior', methods=['POST'])
+def calc_prior():
+    data = request.get_json(force=True)
+    x = int(data['x'])
+    y = int(data['y'])
+    if BOARD.board[x, y] != 0:
+        return jsonify(error='invalid'), 400
+    move = BOARD.coord_to_move(x, y)
+    tmp_board, _ = GAME.getNextState(BOARD, move)
+    policy, _ = evaluate(NET, GAME, tmp_board)
+    return jsonify(policy=np.array(policy).reshape(GAME.size, GAME.size).tolist())
 
 # 辅助函数：AI 落子
 def ai_move():
@@ -189,6 +203,21 @@ def undo():
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
                    winner=winner)
+
+# 使用 MCTS 对当前局面进行深入搜索，返回搜索概率和估值
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    data = request.get_json(force=True)
+    sims = int(data.get('sims', MCTS_SIMS))
+    mcts = MCTS(GAME, NET, sims)
+    pi = mcts.get_action_probs(BOARD, temp=1)
+    s_root = GAME.stringRepresentation(BOARD)
+    value = 0.0
+    for a in range(GAME.getActionSize()):
+        if (s_root, a) in mcts.Qsa:
+            value += pi[a] * mcts.Qsa[(s_root, a)]
+    policy = np.array(pi).reshape(GAME.size, GAME.size).tolist()
+    return jsonify(policy=policy, value=float(value * BOARD.current_player))
 
 if __name__ == '__main__':
     app.run(debug=True)
