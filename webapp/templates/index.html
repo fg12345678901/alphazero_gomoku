@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f8696b">
     <title>AlphaZero 五子棋</title>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -28,22 +29,41 @@
         <input id="sims" type="number" value="600" style="width:70px;">
     </label>
     <label><input type="checkbox" id="show_prob" checked>显示概率</label>
-    <label><input type="checkbox" id="dark_mode">暗黑模式</label>
+    <label>主题:
+        <select id="theme">
+            <option value="default">经典</option>
+            <option value="dark">暗黑</option>
+            <option value="neon">霓虹</option>
+        </select>
+    </label>
     <button onclick="startGame()">开始</button>
     <button onclick="undo()">悔棋</button>
+    <button onclick="downloadBoard()">下载棋盘</button>
 </div>
 <div class="game-area">
     <div id="board"></div>
+    <div class="scoreboard">
+        <div class="player" id="blackPlayer">● <span id="blackCount">0</span></div>
+        <div class="player" id="whitePlayer">○ <span id="whiteCount">0</span></div>
+    </div>
     <div id="status"></div>
-    <div class="chart-container">
-        <h3>AI 价值估计</h3>
-        <p id="values"></p>
-        <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
-        <canvas id="valueChart" width="400" height="200"></canvas>
+    <div class="side-panels">
+        <div class="chart-container">
+            <h3>AI 价值估计</h3>
+            <p id="values"></p>
+            <p class="note">折线图中 1 表示黑棋获胜，-1 表示白棋获胜</p>
+            <canvas id="valueChart" width="400" height="200"></canvas>
+        </div>
+        <div class="history-container">
+            <h3>走子记录 <button id="copyHistory" class="copy-btn" onclick="copyHistory()">复制</button></h3>
+            <ol id="historyList"></ol>
+        </div>
     </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script>
 let size = {{ size }};
 let boardElem = document.getElementById('board');
@@ -55,6 +75,64 @@ let awaitingAi = false;
 let gameOver = false;
 let moveHistory = [];
 let chart = null;
+
+function celebrate(winner) {
+    const colors = winner === 1 ? ['#000', '#ffc107'] :
+                    winner === -1 ? ['#fff', '#2196f3'] : ['#888', '#ccc'];
+    for (let i = 0; i < 3; i++) {
+        confetti({
+            particleCount: 80,
+            spread: 60,
+            origin: { y: 0.6 },
+            colors: colors
+        });
+    }
+}
+
+function updateHistory() {
+    const list = document.getElementById('historyList');
+    if (!list) return;
+    list.innerHTML = '';
+    moveHistory.forEach((m, idx) => {
+        const x = Math.floor(m / size) + 1;
+        const y = m % size + 1;
+        const li = document.createElement('li');
+        li.textContent = `(${x},${y})`;
+        list.appendChild(li);
+    });
+}
+
+function updateScoreboard() {
+    let black = 0, white = 0;
+    for (let i=0;i<size;i++) {
+        for (let j=0;j<size;j++) {
+            if (currentBoard[i][j] === 1) black++;
+            else if (currentBoard[i][j] === -1) white++;
+        }
+    }
+    document.getElementById('blackCount').textContent = black;
+    document.getElementById('whiteCount').textContent = white;
+    document.getElementById('blackPlayer').classList.toggle('active', currentPlayer === 1);
+    document.getElementById('whitePlayer').classList.toggle('active', currentPlayer === -1);
+}
+
+function copyHistory() {
+    const text = moveHistory.map((m, idx) => {
+        const x = Math.floor(m / size) + 1;
+        const y = m % size + 1;
+        return `${idx + 1}.(${x},${y})`;
+    }).join(' ');
+    navigator.clipboard.writeText(text);
+}
+
+function downloadBoard() {
+    html2canvas(document.getElementById('board')).then(canvas => {
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'board.png';
+        link.click();
+    });
+}
 
 function describeAdvantage(v) {
     if (v > 0) return '黑棋优势(●)';
@@ -86,6 +164,39 @@ function initChart() {
 document.getElementById('show_prob').addEventListener('change', () => {
     if(currentBoard) renderBoard(currentBoard, policy);
 });
+
+// 恢复主题样式
+const savedTheme = localStorage.getItem('theme') || 'default';
+if (savedTheme === 'neon') {
+    document.body.classList.add('neon');
+    document.getElementById('theme').value = 'neon';
+} else if (savedTheme === 'dark') {
+    document.body.classList.add('dark');
+    document.getElementById('theme').value = 'dark';
+}
+document.getElementById('theme').addEventListener('change', (e) => {
+    document.body.classList.remove('neon', 'dark');
+    if (e.target.value === 'neon') {
+        document.body.classList.add('neon');
+    } else if (e.target.value === 'dark') {
+        document.body.classList.add('dark');
+    }
+    localStorage.setItem('theme', e.target.value);
+});
+
+function addHoverEffects() {
+    document.querySelectorAll('#board td').forEach(td => {
+        td.addEventListener('mouseenter', () => {
+            const x = td.dataset.x;
+            const y = td.dataset.y;
+            document.querySelectorAll(`#board td[data-x='${x}']`).forEach(el => el.classList.add('hover-row'));
+            document.querySelectorAll(`#board td[data-y='${y}']`).forEach(el => el.classList.add('hover-col'));
+        });
+        td.addEventListener('mouseleave', () => {
+            document.querySelectorAll('#board td').forEach(el => el.classList.remove('hover-row', 'hover-col'));
+        });
+    });
+}
 
 function updateChart(values) {
     if (!chart) return;
@@ -164,6 +275,8 @@ function renderBoard(board, probs) {
             move(td.dataset.x, td.dataset.y);
         });
     });
+    addHoverEffects();
+    updateScoreboard();
 }
 
 function startGame() {
@@ -183,15 +296,50 @@ function startGame() {
         const last = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(last);
         updateChart(res.data.value_curve);
+        updateHistory();
+        updateScoreboard();
+        if (document.getElementById('mode').value === 'ai_ai') {
+            setTimeout(autoPlay, 500);
+        }
     });
 }
 
+function autoPlay() {
+    if (gameOver || awaitingAi || document.getElementById('mode').value !== 'ai_ai') return;
+    awaitingAi = true;
+    axios.post('/ai_step').then(res => {
+        policy = res.data.policy;
+        currentBoard = res.data.board;
+        currentPlayer = res.data.current_player;
+        moveHistory = res.data.history || [];
+        renderBoard(res.data.board, policy);
+        updateHistory();
+        updateScoreboard();
+        const v = res.data.value_curve[res.data.value_curve.length-1];
+        valuesElem.textContent = describeAdvantage(v);
+        updateChart(res.data.value_curve);
+        awaitingAi = false;
+        if (res.data.winner !== null) {
+            gameOver = true;
+            let msg = res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局');
+            document.getElementById('status').innerHTML = msg + ' <button onclick="resetPage()">再来一局</button>';
+            celebrate(res.data.winner);
+        } else {
+            setTimeout(autoPlay, 500);
+        }
+    }).catch(err => {
+        awaitingAi = false;
+        if (err.response) alert(err.response.data.error);
+    });
+}
 function move(x, y) {
     if (gameOver || awaitingAi || currentBoard[x][y] !== 0) return;
     currentBoard[x][y] = currentPlayer;
     currentPlayer = -currentPlayer;
     moveHistory.push(x*size + y);
     renderBoard(currentBoard, policy);
+    updateHistory();
+    updateScoreboard();
     awaitingAi = true;
     document.getElementById('status').textContent = 'AI 思考中...';
     axios.post('/move', {x: x, y: y}).then(res => {
@@ -200,6 +348,8 @@ function move(x, y) {
         currentPlayer = res.data.current_player;
         moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
+        updateHistory();
+        updateScoreboard();
         const lastMoveVal = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(lastMoveVal);
         updateChart(res.data.value_curve);
@@ -209,6 +359,7 @@ function move(x, y) {
             gameOver = true;
             let msg = res.data.winner===1?'黑胜':(res.data.winner===-1?'白胜':'平局');
             document.getElementById('status').innerHTML = msg + ' <button onclick="resetPage()">再来一局</button>';
+            celebrate(res.data.winner);
         }
     }).catch(err => {
         if (err.response) alert(err.response.data.error);
@@ -224,6 +375,8 @@ function undo() {
         currentPlayer = res.data.current_player;
         moveHistory = res.data.history || [];
         renderBoard(res.data.board, policy);
+        updateHistory();
+        updateScoreboard();
         const v = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(v);
         updateChart(res.data.value_curve);
@@ -236,20 +389,8 @@ function resetPage() {
 }
 
 initChart();
-// 恢复主题
-if (localStorage.getItem('darkMode') === 'on') {
-    document.body.classList.add('dark');
-    document.getElementById('dark_mode').checked = true;
-}
-document.getElementById('dark_mode').addEventListener('change', (e) => {
-    if(e.target.checked) {
-        document.body.classList.add('dark');
-        localStorage.setItem('darkMode','on');
-    } else {
-        document.body.classList.remove('dark');
-        localStorage.setItem('darkMode','off');
-    }
-});
+updateHistory();
+updateScoreboard();
 </script>
 </div>
 </body>

@@ -18,8 +18,11 @@ app = Flask(__name__)
 
 # ---------------- 工具函数 ----------------
 def latest_model():
-    files = sorted(glob.glob(os.path.join('models', 'net_*.pt')))
-    return files[-1] if files else None
+    files = glob.glob(os.path.join('models', 'net_*.pt'))
+    if not files:
+        return None
+    files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
+    return files[-1]
 
 def evaluate(net, game, board):
     planes = game.getCanonicalForm(board, board.current_player)
@@ -102,6 +105,23 @@ def ai_move():
     policy, value = evaluate(NET, GAME, BOARD)
     VALUE_CURVE.append(value * BOARD.current_player)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
+
+@app.route('/ai_step', methods=['POST'])
+def ai_step():
+    """在 AI 对战模式下执行一步 AI 行棋"""
+    global BOARD, HISTORY, VALUE_CURVE, POLICY
+    if MODE != 'ai_ai':
+        return jsonify(error='invalid mode'), 400
+    if BOARD.get_winner() is not None:
+        return jsonify(error='game over'), 400
+    ai_move()
+    winner = BOARD.get_winner()
+    return jsonify(board=BOARD.board.tolist(),
+                   current_player=int(BOARD.current_player),
+                   history=HISTORY,
+                   value_curve=VALUE_CURVE,
+                   policy=POLICY,
+                   winner=winner)
 
 @app.route('/move', methods=['POST'])
 def make_move():
