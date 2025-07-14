@@ -56,8 +56,8 @@
 <div class="game-area">
     <div id="board"></div>
     <div class="scoreboard">
-        <div class="player" id="blackPlayer">● <span id="blackCount">0</span></div>
-        <div class="player" id="whitePlayer">○ <span id="whiteCount">0</span></div>
+        <div class="player" id="blackPlayer">● <span id="blackCount" class="count">0</span></div>
+        <div class="player" id="whitePlayer">○ <span id="whiteCount" class="count">0</span></div>
     </div>
     <div id="status"></div>
     <div class="side-panels">
@@ -89,6 +89,21 @@ let gameOver = false;
 let moveHistory = [];
 let chart = null;
 let analysisPoints = [];
+let prevBlack = 0, prevWhite = 0, prevMoves = 0;
+let audioCtx = null;
+
+function playSound() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+}
 
 function celebrate(winner) {
     const colors = winner === 1 ? ['#000', '#ffc107'] :
@@ -106,6 +121,7 @@ function celebrate(winner) {
 function updateHistory() {
     const list = document.getElementById('historyList');
     if (!list) return;
+    const oldLen = prevMoves;
     list.innerHTML = '';
     moveHistory.forEach((m, idx) => {
         const x = Math.floor(m / size) + 1;
@@ -114,10 +130,13 @@ function updateHistory() {
         li.textContent = `(${x},${y})`;
         list.appendChild(li);
     });
+    if (moveHistory.length > oldLen) playSound();
+    prevMoves = moveHistory.length;
 }
 
 function updateScoreboard() {
     if (!currentBoard) {
+        prevBlack = prevWhite = 0;
         document.getElementById('blackCount').textContent = 0;
         document.getElementById('whiteCount').textContent = 0;
     } else {
@@ -128,8 +147,20 @@ function updateScoreboard() {
                 else if (currentBoard[i][j] === -1) white++;
             }
         }
-        document.getElementById('blackCount').textContent = black;
-        document.getElementById('whiteCount').textContent = white;
+        const bc = document.getElementById('blackCount');
+        const wc = document.getElementById('whiteCount');
+        bc.textContent = black;
+        wc.textContent = white;
+        if (black !== prevBlack) {
+            bc.classList.add('bump');
+            setTimeout(() => bc.classList.remove('bump'), 300);
+        }
+        if (white !== prevWhite) {
+            wc.classList.add('bump');
+            setTimeout(() => wc.classList.remove('bump'), 300);
+        }
+        prevBlack = black;
+        prevWhite = white;
     }
     document.getElementById('blackPlayer').classList.toggle('active', currentPlayer === 1);
     document.getElementById('whitePlayer').classList.toggle('active', currentPlayer === -1);
