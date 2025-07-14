@@ -17,8 +17,6 @@
 body {
     font-family: "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
     background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
-    background-size: 400% 400%;
-    animation: gradient-move 15s ease infinite;
     color: var(--text-color);
     display: flex;
     flex-direction: column;
@@ -190,7 +188,6 @@ td.black::before, td.white::before {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    animation: drop 0.2s ease-out;
 }
 
 td.black::before {
@@ -214,23 +211,6 @@ td.white::before {
 @keyframes pulse {
     0% { transform: scale(1); }
     50% { transform: scale(1.15); }
-    100% { transform: scale(1); }
-}
-
-@keyframes gradient-move {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-@keyframes drop {
-    from { transform: translateY(-10px) scale(0.4); opacity: 0; }
-    to { transform: translateY(0) scale(1); opacity: 1; }
-}
-
-@keyframes bump {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.4); }
     100% { transform: scale(1); }
 }
 
@@ -305,10 +285,6 @@ td.white .move-num { color: #000; }
 
 .scoreboard .active {
     transform: scale(1.2);
-}
-
-.scoreboard .count.bump {
-    animation: bump 0.3s ease;
 }
 
 #board {
