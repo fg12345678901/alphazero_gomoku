@@ -34,7 +34,6 @@
             <option value="default">经典</option>
             <option value="dark">暗黑</option>
             <option value="neon">霓虹</option>
-            <option value="ocean">海蓝</option>
         </select>
     </label>
     <button onclick="startGame()">开始</button>
@@ -204,18 +203,13 @@ if (savedTheme === 'neon') {
 } else if (savedTheme === 'dark') {
     document.body.classList.add('dark');
     document.getElementById('theme').value = 'dark';
-} else if (savedTheme === 'ocean') {
-    document.body.classList.add('ocean');
-    document.getElementById('theme').value = 'ocean';
 }
 document.getElementById('theme').addEventListener('change', (e) => {
-    document.body.classList.remove('neon', 'dark', 'ocean');
+    document.body.classList.remove('neon', 'dark');
     if (e.target.value === 'neon') {
         document.body.classList.add('neon');
     } else if (e.target.value === 'dark') {
         document.body.classList.add('dark');
-    } else if (e.target.value === 'ocean') {
-        document.body.classList.add('ocean');
     }
     localStorage.setItem('theme', e.target.value);
 });
