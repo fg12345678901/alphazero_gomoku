@@ -4,6 +4,7 @@ import os, pickle, glob, random
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from config import DATA_DIR, BUFFER_SIZE, BATCH_SIZE
 
@@ -13,14 +14,22 @@ class ReplayBuffer(Dataset):
         self.load_existing()
 
     def load_existing(self):
-        # files = sorted(glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")))
+        """Load recent self-play data until BUFFER_SIZE is satisfied."""
         files = sorted(
-                        glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")),
-                        key=os.path.getmtime        # 用文件修改时间而不是名字
-                        )
-        for f in files:
+            glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")),
+            key=os.path.getmtime,
+        )
+        chunks = []
+        total = 0
+        for f in reversed(files):  # 从最新文件开始向前找
             with open(f, "rb") as fp:
-                self.data.extend(pickle.load(fp))
+                chunk = pickle.load(fp)
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= BUFFER_SIZE:
+                break
+        # 按时间顺序拼接并裁剪
+        self.data = [item for ch in reversed(chunks) for item in ch]
         self._trim()
 
     def append_from_file(self, file_path):
@@ -43,6 +52,27 @@ class ReplayBuffer(Dataset):
                torch.tensor(z, dtype=torch.float32)
 
     # ----------- DataLoader ----------- #
-    def loader(self, shuffle=True):
-        return DataLoader(self, batch_size=BATCH_SIZE, shuffle=shuffle,
-                          num_workers=0, pin_memory=True)
+    def loader(self, shuffle=True, distributed=False, batch_size=BATCH_SIZE):
+        """Return DataLoader with optional DistributedSampler and custom batch size."""
+        if distributed:
+            sampler = DistributedSampler(self, shuffle=shuffle)
+            return (
+                DataLoader(
+                    self,
+                    batch_size=batch_size,
+                    sampler=sampler,
+                    num_workers=0,
+                    pin_memory=True,
+                ),
+                sampler,
+            )
+        return (
+            DataLoader(
+                self,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=0,
+                pin_memory=True,
+            ),
+            None,
+        )
