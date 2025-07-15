@@ -22,8 +22,6 @@ def main():
 
     p_tr = sub.add_parser("train")
     p_tr.add_argument("--updates", type=int, default=TRAIN_UPDATES)
-    p_tr.add_argument("--ddp", action="store_true", help="use DDP for training")
-    p_tr.add_argument("--local_rank", type=int, default=None, help=argparse.SUPPRESS)
 
     p_ev = sub.add_parser("evaluate")
     p_ev.add_argument("--num-games", type=int, default=EVAL_GAMES)
@@ -41,9 +39,7 @@ def main():
         sp.run()
 
     elif args.cmd == "train":
-        if args.local_rank is None and os.environ.get("LOCAL_RANK"):
-            args.local_rank = int(os.environ["LOCAL_RANK"])
-        tr = Trainer(distributed=args.ddp, local_rank=args.local_rank)
+        tr = Trainer()
         tr.train(args.updates)
 
     elif args.cmd == "evaluate":
