@@ -40,11 +40,16 @@ python main.py evaluate --num-games 400
 # 单 GPU 循环
 bash loop.sh
 
-# 多 GPU 循环（需正确设置可见 GPU）
+# 多 GPU 循环（DataParallel）
 bash loop_mult.sh
+
+# 多 GPU 循环（DDP）
+bash loop_ddp.sh
 ```
 
 `loop_mult.sh` 会调用 `utils/selfplay_parallel.sh` 与 `utils/eval_parallel.sh` 在多卡上并行完成自对弈与评测，并使用 `DataParallel` 进行训练。根据硬件环境可调整脚本中的 GPU 编号及局数、更新次数等参数。
+
+`loop_ddp.sh` 则基于 `torchrun` 启动多个进程，使用 `DistributedDataParallel` 以获得更好的多卡效率。
 
 
 ## 网页对弈
