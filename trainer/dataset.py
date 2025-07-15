@@ -4,6 +4,7 @@ import os, pickle, glob, random
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 from config import DATA_DIR, BUFFER_SIZE, BATCH_SIZE
 
@@ -43,6 +44,11 @@ class ReplayBuffer(Dataset):
                torch.tensor(z, dtype=torch.float32)
 
     # ----------- DataLoader ----------- #
-    def loader(self, shuffle=True):
+    def loader(self, shuffle=True, distributed=False):
+        """Return DataLoader, optionally with DistributedSampler."""
+        if distributed:
+            sampler = DistributedSampler(self, shuffle=shuffle)
+            return DataLoader(self, batch_size=BATCH_SIZE, sampler=sampler,
+                              num_workers=0, pin_memory=True), sampler
         return DataLoader(self, batch_size=BATCH_SIZE, shuffle=shuffle,
-                          num_workers=0, pin_memory=True)
+                          num_workers=0, pin_memory=True), None
