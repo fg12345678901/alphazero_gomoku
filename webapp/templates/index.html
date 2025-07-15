@@ -28,6 +28,10 @@
     <label>搜索次数:
         <input id="sims" type="number" value="600" style="width:70px;">
     </label>
+    <label>模型:
+        <select id="modelSelect"></select>
+    </label>
+    <span id="currentModel" class="model-info"></span>
     <label><input type="checkbox" id="show_prob" checked>显示概率</label>
     <label>主题:
         <select id="theme">
@@ -158,6 +162,21 @@ function describeAdvantage(v) {
     if (v > 0) return '黑棋优势(●)';
     if (v < 0) return '白棋优势(○)';
     return '均势';
+}
+
+function loadModels() {
+    axios.get('/models').then(res => {
+        const sel = document.getElementById('modelSelect');
+        sel.innerHTML = '';
+        res.data.models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            if (m === res.data.current) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        document.getElementById('currentModel').textContent = res.data.current ? `当前模型: ${res.data.current}` : '';
+    });
 }
 
 function initChart() {
@@ -318,11 +337,16 @@ function renderBoard(board, probs) {
 
 function startGame() {
     document.getElementById('status').textContent = '加载中...';
+    const loadingTip = setTimeout(() => {
+        document.getElementById('status').textContent = '模型加载中...';
+    }, 1000);
     axios.post('/start', {
         mode: document.getElementById('mode').value,
         human_player: document.getElementById('human_color').value,
-        mcts_sims: document.getElementById('sims').value
+        mcts_sims: document.getElementById('sims').value,
+        model: document.getElementById('modelSelect').value
     }).then(res => {
+        clearTimeout(loadingTip);
         policy = res.data.policy;
         currentBoard = res.data.board;
         currentPlayer = res.data.current_player;
@@ -330,6 +354,7 @@ function startGame() {
         gameOver = false;
         analysisPoints = [];
         document.getElementById('status').textContent = '';
+        document.getElementById('currentModel').textContent = res.data.model ? `当前模型: ${res.data.model}` : '';
         renderBoard(res.data.board, policy);
         const last = res.data.value_curve[res.data.value_curve.length-1];
         valuesElem.textContent = describeAdvantage(last);
@@ -465,6 +490,7 @@ function resetPage() {
 initChart();
 updateHistory();
 updateScoreboard();
+loadModels();
 document.getElementById('analyzeConfirm').addEventListener('click', () => {
     const sims = document.getElementById('analyzeSims').value;
     closeAnalyzeModal();

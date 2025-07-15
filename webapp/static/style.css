@@ -445,3 +445,8 @@ td.white .move-num { color: #000; }
 .modal-actions button {
     margin-left: 10px;
 }
+
+.model-info {
+    font-weight: bold;
+    margin-left: 8px;
+}
