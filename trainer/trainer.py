@@ -5,6 +5,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
 from tqdm import trange
 
 from config import *
@@ -16,12 +17,30 @@ logger = logging.getLogger(__name__)
 
 
 class Trainer:
-    def __init__(self):
+    def __init__(self, distributed: bool = False, local_rank: int | None = None):
         os.makedirs(MODEL_DIR, exist_ok=True)
-        self.net = AlphaZeroNet().to(DEVICE)
+        self.distributed = distributed
 
-        # ---------- 开启 DataParallel（多 GPU 才包裹） ----------
-        if DEVICE == "cuda" and torch.cuda.device_count() > 1:
+        if distributed:
+            if local_rank is None:
+                local_rank = int(os.environ.get("LOCAL_RANK", 0))
+            dist.init_process_group(backend="nccl")
+            torch.cuda.set_device(local_rank)
+            device = torch.device(f"cuda:{local_rank}")
+        else:
+            device = torch.device(DEVICE)
+
+        self.device = device
+        self.net = AlphaZeroNet().to(self.device)
+
+        if distributed:
+            self.net = nn.parallel.DistributedDataParallel(
+                self.net, device_ids=[local_rank], output_device=local_rank
+            )
+            logger.info(
+                f"DDP enabled · rank {dist.get_rank()}/{dist.get_world_size()}"
+            )
+        elif device.type == "cuda" and torch.cuda.device_count() > 1:
             self.net = nn.DataParallel(self.net)
             logger.info(f"DataParallel enabled · {torch.cuda.device_count()} GPUs")
 
@@ -33,16 +52,38 @@ class Trainer:
 
     # ----------------- 主循环 ----------------- #
     def train(self, updates=TRAIN_UPDATES):
-        loader = self.buffer.loader()
+        batch_size = BATCH_SIZE
+        if self.distributed:
+            world_size = dist.get_world_size()
+            batch_size = max(1, BATCH_SIZE // world_size)
+            if BATCH_SIZE % world_size != 0 and dist.get_rank() == 0:
+                logger.warning(
+                    "BATCH_SIZE %d not divisible by world_size %d; using per-rank batch size %d",
+                    BATCH_SIZE,
+                    world_size,
+                    batch_size,
+                )
+        loader, sampler = self.buffer.loader(distributed=self.distributed, batch_size=batch_size)
         it = iter(loader)
-        for _ in trange(updates, desc="Training"):
+        progress = trange(
+            updates,
+            desc="Training",
+            disable=self.distributed and dist.get_rank() != 0,
+        )
+        for step in progress:
+            if sampler:
+                sampler.set_epoch(step)
             try:
                 boards, target_pi, target_v = next(it)
             except StopIteration:
                 it = iter(loader)
                 boards, target_pi, target_v = next(it)
 
-            boards, target_pi, target_v = boards.to(DEVICE), target_pi.to(DEVICE), target_v.to(DEVICE)
+            boards, target_pi, target_v = (
+                boards.to(self.device),
+                target_pi.to(self.device),
+                target_v.to(self.device),
+            )
             self.optimizer.zero_grad()
             out_pi, out_v = self.net(boards)
             l_pi = -torch.mean(torch.sum(target_pi * torch.log_softmax(out_pi, dim=1), dim=1))
@@ -94,9 +135,12 @@ class Trainer:
 
     # ----------------- 模型管理 ----------------- #
     def _save_model(self):
+        if self.distributed and dist.get_rank() != 0:
+            return
         fname = os.path.join(MODEL_DIR, f"net_{int(time.time())}.pt")
-        # torch.save(self.net.state_dict(), fname)
-        state = self.net.module.state_dict() if hasattr(self.net, "module") else self.net.state_dict()
+        state = (
+            self.net.module.state_dict() if hasattr(self.net, "module") else self.net.state_dict()
+        )
         torch.save(state, fname)
 
         logger.info(f"Model saved to {fname}")
@@ -114,6 +158,6 @@ class Trainer:
         if path:
             # self.net.load_state_dict(torch.load(path, map_location=DEVICE))
             target = self.net.module if hasattr(self.net, "module") else self.net
-            target.load_state_dict(torch.load(path, map_location=DEVICE))
+            target.load_state_dict(torch.load(path, map_location=self.device))
             
             logger.info(f"Loaded model {path}")
