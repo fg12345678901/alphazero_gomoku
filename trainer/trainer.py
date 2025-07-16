@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 from tqdm import trange
+from torch.utils.tensorboard import SummaryWriter
 
 from config import *
 from network.model import AlphaZeroNet
@@ -47,11 +48,17 @@ class Trainer:
         self.optimizer = optim.Adam(self.net.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
         self.buffer = ReplayBuffer()
         self.step = 0
+        self.writer = None
 
         self._load_latest_model()
 
     # ----------------- 主循环 ----------------- #
     def train(self, updates=TRAIN_UPDATES):
+        ts = int(time.time())
+        if (not self.distributed) or dist.get_rank() == 0:
+            os.makedirs(TB_DIR, exist_ok=True)
+            self.writer = SummaryWriter(os.path.join(TB_DIR, f"net_{ts}"))
+
         batch_size = BATCH_SIZE
         if self.distributed:
             world_size = dist.get_world_size()
@@ -92,8 +99,16 @@ class Trainer:
             loss.backward()
             self.optimizer.step()
             self.step += 1
+            if self.writer:
+                self.writer.add_scalar("loss/total", loss.item(), self.step)
+                self.writer.add_scalar("loss/value", l_v.item(), self.step)
+                self.writer.add_scalar("loss/policy", l_pi.item(), self.step)
 
-        self._save_model()
+        if self.writer:
+            self.writer.flush()
+        self._save_model(ts)
+        if self.writer:
+            self.writer.close()
 
     # ----------------- 评估与更替 ----------------- #
     def evaluate_and_update(self, num_games,
@@ -134,10 +149,12 @@ class Trainer:
             logger.info("New model accepted!")
 
     # ----------------- 模型管理 ----------------- #
-    def _save_model(self):
+    def _save_model(self, timestamp: int | None = None):
         if self.distributed and dist.get_rank() != 0:
             return
-        fname = os.path.join(MODEL_DIR, f"net_{int(time.time())}.pt")
+        if timestamp is None:
+            timestamp = int(time.time())
+        fname = os.path.join(MODEL_DIR, f"net_{timestamp}.pt")
         state = (
             self.net.module.state_dict() if hasattr(self.net, "module") else self.net.state_dict()
         )

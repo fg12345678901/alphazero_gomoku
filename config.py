@@ -33,3 +33,5 @@ DATA_DIR  = 'data'                                         # 保存 self‑play 
 LOG_DIR   = "logs"
 LOG_LEVEL = "INFO"          # 开发阶段可改成 "DEBUG"
 LOG_NAME  = "alphazero"     # 便于 grep/分析
+TB_DIR    = "tb"            # TensorBoard 日志目录
+
