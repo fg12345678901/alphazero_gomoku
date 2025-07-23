@@ -2,7 +2,8 @@
 """Model distillation script.
 Distills a larger teacher model to a smaller student model.
 Student defaults to config CHANNELS and NUM_RES, but can be overridden.
-Outputs the student checkpoint to distillation_model/net_<timestamp>_<channels>x<blocks>.pt.
+Outputs the student checkpoint to ``distillation_model/distill_net_<timestamp>_<channels>x<blocks>.pt``.
+TensorBoard logs are written to ``tb/distill_net_<timestamp>_<channels>x<blocks>``.
 """
 from __future__ import annotations
 import argparse, os, glob, time
@@ -81,7 +82,7 @@ class Distiller:
         os.makedirs(TB_DIR, exist_ok=True)
         tb_path = os.path.join(
             TB_DIR,
-            f"net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}",
+            f"distill_net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}",
         )
         self.writer = SummaryWriter(tb_path)
         for step in trange(self.updates, desc="Distillation"):
@@ -109,7 +110,7 @@ class Distiller:
 
         fname = os.path.join(
             self.out_dir,
-            f"net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}.pt",
+            f"distill_net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}.pt",
         )
         torch.save(self.student.state_dict(), fname)
         logger.info(f"Distilled model saved to {fname}")
