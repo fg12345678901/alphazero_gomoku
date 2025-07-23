@@ -10,6 +10,7 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import trange
@@ -19,7 +20,17 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys
 sys.path.insert(0, str(ROOT))
 
-from config import (BOARD_SIZE, CHANNELS, NUM_RES, DEVICE, BATCH_SIZE, TRAIN_UPDATES, LEARNING_RATE, WEIGHT_DECAY)
+from config import (
+    BOARD_SIZE,
+    CHANNELS,
+    NUM_RES,
+    DEVICE,
+    BATCH_SIZE,
+    TRAIN_UPDATES,
+    LEARNING_RATE,
+    WEIGHT_DECAY,
+    TB_DIR,
+)
 from network.model import AlphaZeroNet
 from trainer.dataset import ReplayBuffer
 from logging_setup import setup_logging
@@ -55,6 +66,7 @@ class Distiller:
         self.loader = DataLoader(self.buffer, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
         self.iterator = iter(self.loader)
         self.updates = updates
+        self.writer = None
 
     def _next_batch(self):
         try:
@@ -65,7 +77,14 @@ class Distiller:
         return boards.to(DEVICE)
 
     def run(self):
-        for _ in trange(self.updates, desc="Distillation"):
+        ts = int(time.time())
+        os.makedirs(TB_DIR, exist_ok=True)
+        tb_path = os.path.join(
+            TB_DIR,
+            f"net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}",
+        )
+        self.writer = SummaryWriter(tb_path)
+        for step in trange(self.updates, desc="Distillation"):
             boards = self._next_batch()
             with torch.no_grad():
                 t_pi, t_v = self.teacher(boards)
@@ -81,9 +100,17 @@ class Distiller:
             loss.backward()
             self.optimizer.step()
 
-        ts = int(time.time())
+            self.writer.add_scalar("loss/total", loss.item(), step)
+            self.writer.add_scalar("loss/value", loss_v.item(), step)
+            self.writer.add_scalar("loss/policy", loss_pi.item(), step)
+
+        self.writer.flush()
+        self.writer.close()
+
         fname = os.path.join(
-            self.out_dir, f"net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}.pt")
+            self.out_dir,
+            f"net_{ts}_{self.student.conv.out_channels}x{len(self.student.res_layers)}.pt",
+        )
         torch.save(self.student.state_dict(), fname)
         logger.info(f"Distilled model saved to {fname}")
 
