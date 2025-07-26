@@ -7,7 +7,7 @@ from selfplay.augment import rotate_flip
 class GomokuGame:
     """
     AlphaZero 接口封装:
-      • getInitBoard        -> numpy 状态(3×S×S)
+      • getInitBoard        -> numpy 状态(INPUT_PLANES×S×S)
       • getNextState, getValidMoves, getGameEnded, getCanonicalForm
       • stringRepresentation(用于哈希)
     """
@@ -47,11 +47,26 @@ class GomokuGame:
             return -1
 
     def getCanonicalForm(self, board: Board, player: int) -> np.ndarray:
-        """返回以 `player` 视角的 3×S×S 特征平面"""
-        plane_current = (board.board == player).astype(np.float32)
-        plane_opp     = (board.board == -player).astype(np.float32)
-        plane_turn    = np.full_like(plane_current, player, dtype=np.float32)  # or 1 channel of 1s
-        return np.stack([plane_current, plane_opp, plane_turn], axis=0)
+        """返回以 `player` 视角的時序特徵平面"""
+        from config import HISTORY_STEPS, INPUT_PLANES
+
+        planes = np.zeros((INPUT_PLANES, self.size, self.size), dtype=np.float32)
+
+        # 逐步回溯棋谱，生成當前及歷史局面，不足部分以 0 填充
+        state = board.board.copy()
+        history = board.move_history
+        for i in range(HISTORY_STEPS):
+            planes[i] = (state == player).astype(np.float32)
+            planes[i + HISTORY_STEPS] = (state == -player).astype(np.float32)
+            if i < len(history):
+                move = history[-1 - i]
+                x, y = board.move_to_coord(move)
+                state[x, y] = 0
+            else:
+                state.fill(0)
+
+        planes[-1].fill(player)
+        return planes
 
     def getSymmetries(self, board_planes: np.ndarray, pi: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
         """八向对称增强"""
