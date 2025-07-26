@@ -38,11 +38,13 @@ def migrate(old_path: str | None = None) -> None:
     # ------- conv1 权重映射 -------
     conv_old = old_sd["conv.weight"]  # (out_c, 3, k, k)
     conv_new = new_sd["conv.weight"]  # (out_c, 2*HISTORY_STEPS+1, k, k)
+    scale = 1.0 / HISTORY_STEPS
     with torch.no_grad():
         for i in range(HISTORY_STEPS):
-            conv_new[:, i] = conv_old[:, 0]          # 当前玩家棋子
-            conv_new[:, HISTORY_STEPS + i] = conv_old[:, 1]  # 对手棋子
-        conv_new[:, -1] = conv_old[:, 2]            # 常数平面
+            # 当前玩家/对手棋子权重均均分到各历史平面
+            conv_new[:, i] = conv_old[:, 0] * scale
+            conv_new[:, HISTORY_STEPS + i] = conv_old[:, 1] * scale
+        conv_new[:, -1] = conv_old[:, 2]            # 常数平面保持不变
     new_sd["conv.weight"] = conv_new
 
     # 其余参数形状一致，直接复制
