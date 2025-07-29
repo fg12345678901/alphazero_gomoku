@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import BOARD_SIZE, CHANNELS, NUM_RES
+from config import BOARD_SIZE, CHANNELS, NUM_RES, INPUT_PLANES
 
 class ResidualBlock(nn.Module):
     def __init__(self, channels):
@@ -23,7 +23,8 @@ class AlphaZeroNet(nn.Module):
     def __init__(self, board_size=BOARD_SIZE, blocks=NUM_RES, channels=CHANNELS):
         super().__init__()
         self.board_size = board_size
-        self.conv = nn.Conv2d(3, channels, 3, padding=1, bias=False)
+        # 输入通道数由 HISTORY_STEPS 控制
+        self.conv = nn.Conv2d(INPUT_PLANES, channels, 3, padding=1, bias=False)
         self.bn   = nn.BatchNorm2d(channels)
         self.res_layers = nn.Sequential(*[ResidualBlock(channels) for _ in range(blocks)])
 
@@ -39,7 +40,7 @@ class AlphaZeroNet(nn.Module):
         self.value_fc2   = nn.Linear(256, 1)
 
     def forward(self, x):
-        # x: (batch, 3, S, S)
+        # x: (batch, INPUT_PLANES, S, S)
         x = F.relu(self.bn(self.conv(x)))
         x = self.res_layers(x)
 

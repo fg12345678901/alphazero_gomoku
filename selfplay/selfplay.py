@@ -69,9 +69,9 @@ class SelfPlayWorker:
                         final_examples.append((sym_planes, sym_pi, z))
 
                         # 如果加的话加这里
-                        #### 尝试仅翻转第三层
+                        #### 尝试仅翻转角色层（最后一层）
                         planes_turn_flipped = sym_planes.copy()
-                        planes_turn_flipped[2] *= -1  # invert the constant turn plane
+                        planes_turn_flipped[-1] *= -1  # invert the constant turn plane
                         #    π and z are kept IDENTICAL per user request
                         final_examples.append((planes_turn_flipped, sym_pi, z))
                         # logger.info("数据增强使用翻转黑白棋")                        
