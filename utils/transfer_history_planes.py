@@ -1,8 +1,15 @@
 # utils/transfer_history_planes.py
 """
 迁移脚本：
-  - 将旧模型(3输入通道)的权重映射到新的带历史信息的网络
-  - 保存到 models/net_<timestamp>.pt
+  - 将仅含 3 个输入平面的旧模型迁移到当前以 ``HISTORY_STEPS``
+    为历史步数的新网络。
+  - 第一层卷积仅复制能直接对应的平面：
+      * 当前玩家棋面 -> 新网络第 0 层，权重缩放 ``1/HISTORY_STEPS``；
+      * 当前对手棋面 -> 新网络第 ``HISTORY_STEPS`` 层，同样缩放；
+      * 常数平面保持不变。
+    其他新增的历史通道保持随机初始化。
+  - 最终模型保存到 ``models/net_<timestamp>.pt``
+
 用法：
   python utils/transfer_history_planes.py [old_checkpoint.pt]
 """
@@ -16,7 +23,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 from network.model import AlphaZeroNet
-from config import MODEL_DIR, DEVICE, HISTORY_STEPS
+from config import MODEL_DIR, DEVICE
 
 
 def latest_ckpt() -> str | None:
@@ -36,15 +43,19 @@ def migrate(old_path: str | None = None) -> None:
     new_sd = new_net.state_dict()
 
     # ------- conv1 权重映射 -------
-    conv_old = old_sd["conv.weight"]  # (out_c, 3, k, k)
-    conv_new = new_sd["conv.weight"]  # (out_c, 2*HISTORY_STEPS+1, k, k)
-    scale = 1.0 / HISTORY_STEPS
+    conv_old = old_sd["conv.weight"]  # (out_c, old_planes, k, k)
+    conv_new = new_sd["conv.weight"]  # (out_c, new_planes, k, k)
+
+    old_history = (conv_old.size(1) - 1) // 2
+    new_history = (conv_new.size(1) - 1) // 2
+    copy_steps = min(old_history, new_history)
+    scale = 1.0 / new_history
+
     with torch.no_grad():
-        for i in range(HISTORY_STEPS):
-            # 当前玩家/对手棋子权重均均分到各历史平面
-            conv_new[:, i] = conv_old[:, 0] * scale
-            conv_new[:, HISTORY_STEPS + i] = conv_old[:, 1] * scale
-        conv_new[:, -1] = conv_old[:, 2]            # 常数平面保持不变
+        for i in range(copy_steps):
+            conv_new[:, i] = conv_old[:, i] * scale
+            conv_new[:, new_history + i] = conv_old[:, old_history + i] * scale
+        conv_new[:, -1] = conv_old[:, -1]  # constant plane
     new_sd["conv.weight"] = conv_new
 
     # 其余参数形状一致，直接复制
