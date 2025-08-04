@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from config import *
 from network.model import AlphaZeroNet
@@ -72,6 +73,11 @@ class Trainer:
                 )
         loader, sampler = self.buffer.loader(distributed=self.distributed, batch_size=batch_size)
         it = iter(loader)
+        scheduler = CosineAnnealingLR(
+            self.optimizer,
+            T_max=updates,
+            eta_min=LEARNING_RATE / 100,
+        )
         progress = trange(
             updates,
             desc="Training",
@@ -98,11 +104,13 @@ class Trainer:
             loss = l_pi + l_v
             loss.backward()
             self.optimizer.step()
+            scheduler.step()
             self.step += 1
             if self.writer:
                 self.writer.add_scalar("loss/total", loss.item(), self.step)
                 self.writer.add_scalar("loss/value", l_v.item(), self.step)
                 self.writer.add_scalar("loss/policy", l_pi.item(), self.step)
+                self.writer.add_scalar("lr", self.optimizer.param_groups[0]["lr"], self.step)
 
         if self.writer:
             self.writer.flush()
