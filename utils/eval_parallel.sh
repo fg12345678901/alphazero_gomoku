@@ -5,6 +5,14 @@ trap 'kill 0; exit 130' INT TERM
 
 TOTAL=$1; shift
 GPUS=("$@"); N=${#GPUS[@]}
+
+# Skip evaluation if there is no previous model
+MODEL_DIR="models"
+if [ $(ls "$MODEL_DIR"/net_*.pt 2>/dev/null | wc -l) -lt 2 ]; then
+  echo "[Arena] no previous model, skipping evaluation"
+  exit 0
+fi
+
 PER=$(( TOTAL / N ))
 DIR="arena_tmp"; rm -rf "$DIR"; mkdir "$DIR"
 
