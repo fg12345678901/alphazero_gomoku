@@ -51,6 +51,20 @@ bash loop_ddp.sh
 
 `loop_ddp.sh` 则基于 `torchrun` 启动多个进程，使用 `DistributedDataParallel` 以获得更好的多卡效率。DDP 模式会自动按进程数均分 `BATCH_SIZE`，从而保持与单卡/DP 相同的全局批次大小。
 
+## 查看模型实力曲线
+
+无论单卡评测还是使用 `utils/eval_parallel.sh` 并行评测，结果都会转换为 Elo，写入 `logs/elo_history.csv`，并同步到 TensorBoard 的 `tb/eval` 目录。其中 `elo_by_step` 展示评测次数与 Elo 的关系，`elo_by_time` 以时间为横轴。启动 TensorBoard 即可查看曲线：
+
+```bash
+tensorboard --logdir tb
+```
+
+也可使用脚本生成图片：
+
+```bash
+python utils/plot_history.py --csv logs/elo_history.csv --out elo.png
+```
+脚本会生成一张包含两条曲线的图片：左侧为评测次数与 Elo 的关系，右侧为时间与 Elo 的关系。这样便能直观地观察模型实力随时间与评测次数的变化。
 
 ## 网页对弈
 

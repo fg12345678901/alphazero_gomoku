@@ -1,6 +1,6 @@
 # trainer/trainer.py
 from __future__ import annotations
-import os, glob, time, pickle, json
+import os, glob, time, pickle, json, csv, math
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from config import *
 from network.model import AlphaZeroNet
@@ -72,6 +73,11 @@ class Trainer:
                 )
         loader, sampler = self.buffer.loader(distributed=self.distributed, batch_size=batch_size)
         it = iter(loader)
+        scheduler = CosineAnnealingLR(
+            self.optimizer,
+            T_max=updates,
+            eta_min=LEARNING_RATE / 100,
+        )
         progress = trange(
             updates,
             desc="Training",
@@ -98,11 +104,13 @@ class Trainer:
             loss = l_pi + l_v
             loss.backward()
             self.optimizer.step()
+            scheduler.step()
             self.step += 1
             if self.writer:
                 self.writer.add_scalar("loss/total", loss.item(), self.step)
                 self.writer.add_scalar("loss/value", l_v.item(), self.step)
                 self.writer.add_scalar("loss/policy", l_pi.item(), self.step)
+                self.writer.add_scalar("lr", self.optimizer.param_groups[0]["lr"], self.step)
 
         if self.writer:
             self.writer.flush()
@@ -140,9 +148,76 @@ class Trainer:
             return
 
 
-        win_rate = n1 / (n1 + n2 + d)
-        logger.info(f"Arena result new/old/draw = {n1}/{n2}/{d}, win_rate={win_rate:.2%}")
-        if win_rate < EVAL_THRESHOLD:
+        win_rate = (n1 + 0.5 * d) / (n1 + n2 + d)
+        logger.info(
+            f"Arena result new/old/draw = {n1}/{n2}/{d}, win_rate={win_rate:.2%}"
+        )
+
+        # ---- Elo rating calculation & logging ----
+        os.makedirs(LOG_DIR, exist_ok=True)
+        hist_path = os.path.join(LOG_DIR, "elo_history.csv")
+        prev_elo = 1000.0
+        eval_step = 0
+        if os.path.exists(hist_path):
+            with open(hist_path, "r", newline="") as fp:
+                rows = list(csv.reader(fp))
+                if len(rows) > 1:
+                    last = rows[-1]
+                    prev_elo = float(last[6])
+                    eval_step = len(rows) - 1
+
+        if 0 < win_rate < 1:
+            elo_diff = 400 * math.log10(win_rate / (1 - win_rate))
+        else:
+            elo_diff = 0.0
+
+        new_elo = prev_elo + elo_diff if win_rate >= EVAL_THRESHOLD else prev_elo
+        accepted = win_rate >= EVAL_THRESHOLD
+
+        with open(hist_path, "a", newline="") as fp:
+            writer = csv.writer(fp)
+            if fp.tell() == 0:
+                writer.writerow(
+                    [
+                        "timestamp",
+                        "model",
+                        "wins",
+                        "losses",
+                        "draws",
+                        "win_rate",
+                        "elo",
+                        "accepted",
+                    ]
+                )
+            writer.writerow(
+                [
+                    int(time.time()),
+                    os.path.basename(latest_path),
+                    n1,
+                    n2,
+                    d,
+                    f"{win_rate:.4f}",
+                    f"{new_elo:.2f}",
+                    int(accepted),
+                ]
+            )
+
+        eval_tb_dir = os.path.join(TB_DIR, "eval")
+        os.makedirs(eval_tb_dir, exist_ok=True)
+        writer = SummaryWriter(eval_tb_dir)
+
+        now = int(time.time())
+        # evaluation count vs. Elo
+        writer.add_scalar("elo_by_step", new_elo, eval_step)
+        writer.add_scalar("win_rate_by_step", win_rate, eval_step)
+        # walltime vs. Elo allows viewing strength growth over real time
+        writer.add_scalar("elo_by_time", new_elo, now)
+        writer.add_scalar("win_rate_by_time", win_rate, now)
+
+        writer.flush()
+        writer.close()
+
+        if not accepted:
             logger.info("New model rejected.")
             os.remove(latest_path)
         else:

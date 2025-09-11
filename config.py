@@ -4,6 +4,11 @@ import torch
 
 BOARD_SIZE = 15            # 五子棋 15×15
 N_IN_ROW   = 5             # 连五即可胜
+
+# 网络输入历史步数（AlphaZero 风格）
+HISTORY_STEPS = 3          # 当前步+前 N-1 步
+INPUT_PLANES  = 2 * HISTORY_STEPS + 1
+
 CHANNELS   = 256           # 卷积通道
 NUM_RES    = 15             # 残差块数量
 MCTS_SIMS  = 400          # 每步搜索次数
