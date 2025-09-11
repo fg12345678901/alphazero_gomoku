@@ -449,7 +449,7 @@
         }
 
         function startGame() {
-            document.getElementById('status').innerHTML = '<div class="loading"></div> 初始化量子引擎...';
+            document.getElementById('status').innerHTML = '<div class="loading"></div> 初始化引擎...';
             const loadingTip = setTimeout(() => {
                 document.getElementById('status').innerHTML = '<div class="loading"></div> 加载神经网络模型...';
             }, 1000);
@@ -556,7 +556,7 @@
                 }
             });
 
-            document.getElementById('status').innerHTML = '<div class="loading"></div> AI 量子计算中...';
+            document.getElementById('status').innerHTML = '<div class="loading"></div> AI 计算中...';
             axios.post('/move', {x: x, y: y}).then(res => {
                 policy = res.data.policy;
                 currentBoard = res.data.board;
