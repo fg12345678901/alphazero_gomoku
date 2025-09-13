@@ -66,6 +66,17 @@ python utils/plot_history.py --csv logs/elo_history.csv --out elo.png
 ```
 脚本会生成一张包含两条曲线的图片：左侧为评测次数与 Elo 的关系，右侧为时间与 Elo 的关系。这样便能直观地观察模型实力随时间与评测次数的变化。
 
+## 命令行对弈
+
+无需启动网页前端，也可以直接在终端中与 AI 对弈。使用 `evaluate.py` 并指定模型路径：
+
+```bash
+python evaluate.py --model1 models/best.pt --human --human-color black
+```
+
+`--human` 开启人机对战，`--human-color` 指定人类执棋颜色，可选 `black` 或 `white`（默认白棋）。
+若要让两个模型互博，可同时提供 `--model2` 并设置对局次数 `--games`。
+
 ## 网页对弈
 
 项目附带一个简单的 Flask 前端，可用于和 AI 或其他玩家在浏览器中对弈。
