@@ -1,16 +1,16 @@
 # config.py
 import torch
-import numpy as np
 
-BOARD_SIZE = 15            # 五子�?15×15
-N_IN_ROW   = 5             # 连五即可�?
 
-# 网络输入历史步数（AlphaZero 风格�?
-HISTORY_STEPS = 3          # 当前�?�?N-1 �?
+BOARD_SIZE = 15            # 五子棋 15×15
+N_IN_ROW   = 5             # 连五即可胜
+
+# 网络输入历史步数（AlphaZero 风格）
+HISTORY_STEPS = 3          # 当前步+前 N-1 步
 INPUT_PLANES  = 2 * HISTORY_STEPS + 1
 
 CHANNELS   = 256           # 卷积通道
-NUM_RES    = 15             # 残差块数�?
+NUM_RES    = 15             # 残差块数量
 MCTS_SIMS  = 1700          # 每步搜索次数
 CPUCT      = 2.5           # MCTS 探索系数
 
@@ -24,11 +24,11 @@ WEIGHT_DECAY     = 1e-4
 DIRICHLET_ALPHA  = 0.06 # 0.30  # α
 DIRICHLET_EPS    = 0.25         # ε
 
-SELFPLAY_TEMPERATURE = 1.0   # �?N_TEMP_MOVES 步使用高温度
+SELFPLAY_TEMPERATURE = 1.0   # 前 N_TEMP_MOVES 步使用高温度
 N_TEMP_MOVES         = 10 #10
 
 EVAL_GAMES     = 100
-EVAL_THRESHOLD = 0.55        # �?5% 胜率则接受新模型
+EVAL_THRESHOLD = 0.55        # ≥55% 胜率则接受新模型
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'    # 'cpu' or 'cuda'
 MODEL_DIR = 'models'                                       # 保存 ckpt
@@ -36,6 +36,6 @@ DATA_DIR  = 'data'                                         # 保存 self‑play 
 
 # 日志相关
 LOG_DIR   = "logs"
-LOG_LEVEL = "DEBUG"          # enable verbose logging during dev
+LOG_LEVEL = "INFO"          # 开发阶段可改成 "DEBUG"
 LOG_NAME  = "alphazero"     # 便于 grep/分析
 TB_DIR    = "tb"            # TensorBoard 日志目录
