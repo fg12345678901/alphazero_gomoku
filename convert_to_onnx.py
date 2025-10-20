@@ -2,8 +2,9 @@
 
 The script supports two ways of locating the checkpoint:
 
-* Provide ``--checkpoint /absolute/path/to/model.pt``.
+* Provide ``--checkpoint /absolute/path/to/model.pt`` (or a Windows path).
 * Provide ``--name latest.pt`` to load ``config.MODEL_DIR / "latest.pt"``.
+  If the ``--name`` value looks like a path it is used directly.
 
 Example::
 
@@ -13,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Optional
 
 import torch
@@ -37,8 +38,8 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help=(
             "Checkpoint filename located inside MODEL_DIR. "
-            "For example, use --name latest.pt to resolve "
-            "config.MODEL_DIR/latest.pt."
+            "If a path is supplied (for example C\\path\\to\\model.pt), "
+            "it will be used directly."
         ),
     )
     parser.add_argument(
@@ -77,14 +78,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _name_looks_like_path(candidate: str) -> bool:
+    """Return True if *candidate* should be treated as a path."""
+
+    if not candidate:
+        return False
+
+    separators = {"/", "\\"}
+    if any(sep in candidate for sep in separators):
+        return True
+
+    try:
+        return bool(PureWindowsPath(candidate).drive)
+    except Exception:
+        return False
+
+
 def main() -> None:
     args = parse_args()
     checkpoint_path: Optional[Path]
     if args.checkpoint is not None:
         checkpoint_path = args.checkpoint.expanduser().resolve()
     else:
-        model_dir = args.model_dir.expanduser().resolve()
-        checkpoint_path = model_dir / args.name
+        if _name_looks_like_path(args.name):
+            checkpoint_path = Path(args.name).expanduser().resolve()
+        else:
+            model_dir = args.model_dir.expanduser().resolve()
+            checkpoint_path = model_dir / args.name
 
     if not checkpoint_path.is_file():
         raise FileNotFoundError(
@@ -95,7 +115,7 @@ def main() -> None:
     if args.output is None:
         output_path = checkpoint_path.with_suffix(".onnx")
     else:
-        output_path = args.output
+        output_path = args.output.expanduser()
         if output_path.is_dir():
             output_path = output_path / (checkpoint_path.stem + ".onnx")
     output_path = output_path.resolve()
