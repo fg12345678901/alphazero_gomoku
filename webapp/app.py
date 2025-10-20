@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 
 from flask import Flask, render_template, request, jsonify
 import numpy as np
@@ -30,6 +31,31 @@ def list_models():
     files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
     return [os.path.basename(f) for f in files]
 
+
+def _resolve_model_path(path):
+    if not path:
+        return None
+    if os.path.basename(path) == path:
+        return os.path.join('models', path)
+    return path
+
+
+def load_model(path):
+    global CURRENT_MODEL_PATH, _LOADED_MODEL_PATH
+    resolved = _resolve_model_path(path)
+    if resolved is None or not os.path.isfile(resolved):
+        return False
+    with MODEL_LOCK:
+        if _LOADED_MODEL_PATH == resolved:
+            CURRENT_MODEL_PATH = resolved
+            return True
+        state_dict = torch.load(resolved, map_location=DEVICE)
+        NET.load_state_dict(state_dict)
+        NET.eval()
+        _LOADED_MODEL_PATH = resolved
+        CURRENT_MODEL_PATH = resolved
+    return True
+
 def evaluate(net, game, board):
     planes = game.getCanonicalForm(board, board.current_player)
     x = torch.tensor(planes, dtype=torch.float32, device=DEVICE).unsqueeze(0)
@@ -49,9 +75,9 @@ def evaluate(net, game, board):
 
 GAME = GomokuGame()
 NET = AlphaZeroNet().to(DEVICE)
-CURRENT_MODEL = latest_model()
-if CURRENT_MODEL:
-    NET.load_state_dict(torch.load(CURRENT_MODEL, map_location=DEVICE))
+MODEL_LOCK = threading.Lock()
+CURRENT_MODEL_PATH = latest_model()
+_LOADED_MODEL_PATH = None
 NET.eval()
 
 BOARD = GAME.getInitBoard()
@@ -69,11 +95,12 @@ def index():
 
 @app.route('/models')
 def models_list():
-    return jsonify(models=list_models(), current=os.path.basename(CURRENT_MODEL) if CURRENT_MODEL else None)
+    current_name = os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None
+    return jsonify(models=list_models(), current=current_name)
 
 @app.route('/start', methods=['POST'])
 def start_game():
-    global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, MODE, HUMAN_PLAYER, POLICY, CURRENT_MODEL
+    global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, MODE, HUMAN_PLAYER, POLICY
     data = request.get_json(force=True)
     MODE = data.get('mode', 'human_ai')
     HUMAN_PLAYER = int(data.get('human_player', 1))
@@ -82,13 +109,7 @@ def start_game():
     if requested_model in (None, '', 'latest'):
         requested_model = latest_model()
     if requested_model:
-        path = requested_model
-        if os.path.basename(requested_model) == requested_model:
-            path = os.path.join('models', requested_model)
-        if path != CURRENT_MODEL and os.path.isfile(path):
-            NET.load_state_dict(torch.load(path, map_location=DEVICE))
-            NET.eval()
-            CURRENT_MODEL = path
+        load_model(requested_model)
     BOARD = GAME.getInitBoard()
     MCTS_OBJ = MCTS(GAME, NET, sims)
     HISTORY = []
@@ -104,7 +125,7 @@ def start_game():
                    history=HISTORY,
                    policy=POLICY,
                    value_curve=VALUE_CURVE,
-                   model=os.path.basename(CURRENT_MODEL) if CURRENT_MODEL else None)
+                   model=os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None)
 
 @app.route('/state')
 def get_state():
@@ -114,7 +135,7 @@ def get_state():
                    history=HISTORY,
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
-                   model=os.path.basename(CURRENT_MODEL) if CURRENT_MODEL else None,
+                   model=os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None,
                    winner=winner)
 
 # 对当前棋盘进行网络前向，返回先验概率
