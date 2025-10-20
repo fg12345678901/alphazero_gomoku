@@ -1,13 +1,13 @@
 import os
 import sys
+import glob
+from copy import deepcopy
 
 from flask import Flask, render_template, request, jsonify
 import numpy as np
 import torch
-import glob
-from copy import deepcopy
 
-# Ensure local modules take precedence over any installed packages
+# 让本地模块优先
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gomoku.game import GomokuGame
@@ -15,44 +15,113 @@ from network.model import AlphaZeroNet
 from mcts.mcts import MCTS
 from config import DEVICE, MCTS_SIMS
 
+# 新增：OM 适配器（基于 ais-bench 的 InferSession）
+try:
+    from network.ascend_om_net_ais import AscendOMNetAIS
+except Exception:
+    AscendOMNetAIS = None  # 没装也不影响 .pt 路径
+
 app = Flask(__name__)
 
 # ---------------- 工具函数 ----------------
-def latest_model():
-    files = glob.glob(os.path.join('models', 'net_*.pt'))
-    if not files:
-        return None
-    files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
-    return files[-1]
+def is_om(path: str) -> bool:
+    return path is not None and path.lower().endswith(".om")
 
 def list_models():
-    files = glob.glob(os.path.join('models', 'net_*.pt'))
-    files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
+    """列出 models/ 目录下的 .pt 和 .om，均按数值或 mtime 排序"""
+    pt_files = glob.glob(os.path.join('models', 'net_*.pt'))
+    om_files = glob.glob(os.path.join('models', '*.om'))
+
+    def _key_num_or_mtime(f):
+        base = os.path.splitext(os.path.basename(f))[0]
+        # 尝试从 net_123 提取 123 作为排序键；失败则用修改时间
+        try:
+            if "_" in base:
+                return int(base.split("_")[-1])
+        except Exception:
+            pass
+        return int(os.path.getmtime(f))
+
+    files = pt_files + om_files
+    files.sort(key=_key_num_or_mtime)
     return [os.path.basename(f) for f in files]
 
+def latest_model():
+    """返回最新的 .om 或 .pt（优先 .om，没有再用 .pt）"""
+    names = list_models()
+    if not names:
+        return None
+    # 优先找 .om
+    for name in reversed(names):
+        if name.lower().endswith(".om"):
+            return os.path.join('models', name)
+    # 退而求其次 .pt
+    return os.path.join('models', names[-1])
+
+def load_net_from_path(path: str):
+    """
+    根据路径加载模型：
+     - *.om -> AscendOMNetAIS
+     - *.pt -> AlphaZeroNet + load_state_dict
+    返回: (net_obj, model_path_str)
+    """
+    if path is None:
+        # 没有模型时，默认创建空的 PyTorch 网络（兼容旧流程）
+        net = AlphaZeroNet().to(DEVICE).eval()
+        return net, None
+
+    # 补全相对路径
+    if os.path.basename(path) == path:
+        path = os.path.join('models', path)
+
+    if is_om(path):
+        if AscendOMNetAIS is None:
+            raise RuntimeError("需要 AscendOMNetAIS（ais-bench）适配器，但未找到。请确保已添加 network/ascend_om_net_ais.py 并安装依赖。")
+        # 设备号可从环境变量覆盖（默认为 0）
+        device_id = int(os.environ.get("DEVICE_ID", "0"))
+        net = AscendOMNetAIS(path, device_id=device_id)  # 你已经小测试验证过
+        return net, path
+    else:
+        # PyTorch .pt
+        net = AlphaZeroNet().to(DEVICE)
+        state = torch.load(path, map_location=DEVICE)
+        net.load_state_dict(state)
+        net.eval()
+        return net, path
+
 def evaluate(net, game, board):
-    planes = game.getCanonicalForm(board, board.current_player)
-    x = torch.tensor(planes, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+    """
+    对当前局面跑一次前向，返回 (policy 概率数组, value 浮点数)
+    - 对 OM 适配器：输入要求 CPU float32 [1,7,15,15]，返回 torch.Tensor
+    - 对 .pt 网络：保持原有逻辑
+    """
+    planes = game.getCanonicalForm(board, board.current_player)  # [7,15,15]
+    # 统一：先在 CPU 构造 float32，再按需放到 DEVICE（仅对 .pt 生效）
+    x = torch.tensor(planes, dtype=torch.float32).unsqueeze(0)   # [1,7,15,15]
+    # Ascend 适配器是 CPU 前向；PyTorch 模型才需要 to(DEVICE)
+    if hasattr(net, "to"):  # 粗略判定是 torch.nn.Module
+        x = x.to(DEVICE)
+
     with torch.no_grad():
-        policy, value = net(x)
-    policy = torch.softmax(policy, dim=1).cpu().numpy()[0]
-    valids = game.getValidMoves(board)
+        policy_logits, value = net(x)
+
+    # -> 概率并应用合法位掩码
+    policy = torch.softmax(policy_logits, dim=1).cpu().numpy()[0]   # [225]
+    valids = game.getValidMoves(board)                              # [225] in {0,1}
     policy = policy * valids
     s = policy.sum()
     if s > 0:
         policy /= s
     else:
-        policy = valids / valids.sum()
-    return policy.tolist(), float(value.item())
+        policy = valids / max(valids.sum(), 1)
+    return policy.tolist(), float(value.detach().cpu().numpy().reshape(-1)[0])
 
 # ---------------- 全局对局状态 ----------------
 
 GAME = GomokuGame()
-NET = AlphaZeroNet().to(DEVICE)
 CURRENT_MODEL = latest_model()
-if CURRENT_MODEL:
-    NET.load_state_dict(torch.load(CURRENT_MODEL, map_location=DEVICE))
-NET.eval()
+
+NET, CURRENT_MODEL = load_net_from_path(CURRENT_MODEL)
 
 BOARD = GAME.getInitBoard()
 MCTS_OBJ = MCTS(GAME, NET)
@@ -60,7 +129,7 @@ HISTORY = []
 VALUE_CURVE = []
 MODE = 'human_ai'  # human_ai, human_human, ai_ai
 HUMAN_PLAYER = 1   # 1 黑, -1 白
-POLICY = []        # 当前局面的网络落子概率
+POLICY = []        # 当前局面的网络落子概率（可视化用）
 
 # ---------------- 路由 ----------------
 @app.route('/')
@@ -69,35 +138,44 @@ def index():
 
 @app.route('/models')
 def models_list():
-    return jsonify(models=list_models(), current=os.path.basename(CURRENT_MODEL) if CURRENT_MODEL else None)
+    return jsonify(models=list_models(),
+                   current=os.path.basename(CURRENT_MODEL) if CURRENT_MODEL else None)
 
 @app.route('/start', methods=['POST'])
 def start_game():
-    global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, MODE, HUMAN_PLAYER, POLICY, CURRENT_MODEL
+    global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, MODE, HUMAN_PLAYER, POLICY, CURRENT_MODEL, NET
     data = request.get_json(force=True)
     MODE = data.get('mode', 'human_ai')
     HUMAN_PLAYER = int(data.get('human_player', 1))
     sims = int(data.get('mcts_sims', MCTS_SIMS))
     requested_model = data.get('model')
+
+    # 选择模型：None/''/'latest' -> 自动挑；否则按文件名从 models/ 取
     if requested_model in (None, '', 'latest'):
-        requested_model = latest_model()
-    if requested_model:
+        path = latest_model()
+    else:
         path = requested_model
-        if os.path.basename(requested_model) == requested_model:
-            path = os.path.join('models', requested_model)
-        if path != CURRENT_MODEL and os.path.isfile(path):
-            NET.load_state_dict(torch.load(path, map_location=DEVICE))
-            NET.eval()
-            CURRENT_MODEL = path
+        if os.path.basename(path) == path:
+            path = os.path.join('models', path)
+
+    # 如果和当前不同，则切换网络（兼容 .om / .pt）
+    if path and path != CURRENT_MODEL and os.path.isfile(path):
+        NET, CURRENT_MODEL = load_net_from_path(path)
+
+    # 重置对局
     BOARD = GAME.getInitBoard()
     MCTS_OBJ = MCTS(GAME, NET, sims)
     HISTORY = []
     VALUE_CURVE = []
+
     policy, value = evaluate(NET, GAME, BOARD)
     VALUE_CURVE.append(value * BOARD.current_player)
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
+
+    # 如果是人机/AI先手，自动下一步
     if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
         ai_move()
+
     return jsonify(success=True,
                    board=BOARD.board.tolist(),
                    current_player=int(BOARD.current_player),
@@ -241,4 +319,5 @@ def analyze():
     return jsonify(policy=policy, value=float(value * BOARD.current_player))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # 生产建议用：gunicorn -w 1 --threads 4 -b 0.0.0.0:8080 app:app
+    app.run(host="0.0.0.0", port=8080, threaded=True)
