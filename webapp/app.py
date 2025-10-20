@@ -123,6 +123,12 @@ CURRENT_MODEL = latest_model()
 
 NET, CURRENT_MODEL = load_net_from_path(CURRENT_MODEL)
 
+# Ascend OM 推理只支持创建它的线程里执行，
+# 因此在开发服务器上要关闭 Flask 的多线程以避免 ctx is NULL。
+USE_THREADED = True
+if AscendOMNetAIS is not None and isinstance(NET, AscendOMNetAIS):
+    USE_THREADED = False
+
 BOARD = GAME.getInitBoard()
 MCTS_OBJ = MCTS(GAME, NET)
 HISTORY = []
@@ -319,5 +325,6 @@ def analyze():
     return jsonify(policy=policy, value=float(value * BOARD.current_player))
 
 if __name__ == '__main__':
-    # 生产建议用：gunicorn -w 1 --threads 4 -b 0.0.0.0:8080 app:app
-    app.run(host="0.0.0.0", port=8080, threaded=True)
+    # Ascend OM 模型需要单线程环境，其他模型仍可用多线程
+    # 生产建议用：gunicorn -w 1 --threads 1 -b 0.0.0.0:8080 app:app（Ascend）
+    app.run(host="0.0.0.0", port=8080, threaded=USE_THREADED)
