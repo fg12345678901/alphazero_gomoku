@@ -17,25 +17,19 @@ alphazero_gomoku/
 ├── loop_mult.sh                   # DataParallel 多卡循环脚本
 ├── main.py                        # 统一命令行入口（自对弈、训练、评测）
 ├── models/                        # 模型权重存放目录
-│   └── put model here.txt         # 提示将模型放入此处
 ├── gomoku/                        # 五子棋棋盘、规则与状态表示
-│   ├── __init__.py                # 模块导出
 │   ├── board.py                   # 棋盘状态与合法落子
 │   ├── display.py                 # 终端可视化与渲染
 │   └── game.py                    # 对局流程与胜负判定
 ├── mcts/                          # 蒙特卡洛树搜索实现
-│   ├── __init__.py                # 模块导出
 │   └── mcts.py                    # AlphaZero MCTS 主体
 ├── network/                       # 策略价值网络定义
-│   ├── __init__.py                # 模块导出
 │   ├── ascend_om_net_ais.py       # Ascend 硬件适配网络结构
 │   └── model.py                   # 默认策略价值网络
 ├── selfplay/                      # 自对弈数据生成模块
-│   ├── __init__.py                # 模块导出
 │   ├── augment.py                 # 棋谱数据增强
 │   └── selfplay.py                # 自对弈循环实现
 ├── trainer/                       # 训练与评测组件
-│   ├── __init__.py                # 模块导出
 │   ├── arena.py                   # 新旧模型对弈评测
 │   ├── dataset.py                 # 自对弈数据集加载
 │   └── trainer.py                 # 训练循环与优化逻辑
