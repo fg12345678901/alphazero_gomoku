@@ -2,6 +2,63 @@
 
 本仓库提供了一个基于 PyTorch 的 AlphaZero 五子棋最小实现。项目包含生成自对弈数据、训练神经网络以及评测模型优劣的脚本，同时提供单 GPU 与多 GPU 的自动循环训练方案，便于持续改进模型。
 
+## 项目架构
+
+```
+alphazero_gomoku/
+├── README.md                      # 项目简介与使用指南
+├── alpha_ts.py                    # AlphaZero 温度搜索实验入口
+├── config.py                      # 训练与自对弈的核心超参数配置
+├── convert_to_onnx.py             # 模型导出为 ONNX 的工具脚本
+├── evaluate.py                    # 离线评测与人机对弈脚本
+├── logging_setup.py               # 日志格式与等级配置
+├── loop.sh                        # 单 GPU 自动循环训练脚本
+├── loop_ddp.sh                    # DistributedDataParallel 循环脚本
+├── loop_mult.sh                   # DataParallel 多卡循环脚本
+├── main.py                        # 统一命令行入口（自对弈、训练、评测）
+├── models/                        # 模型权重存放目录
+│   └── put model here.txt         # 提示将模型放入此处
+├── gomoku/                        # 五子棋棋盘、规则与状态表示
+│   ├── __init__.py                # 模块导出
+│   ├── board.py                   # 棋盘状态与合法落子
+│   ├── display.py                 # 终端可视化与渲染
+│   └── game.py                    # 对局流程与胜负判定
+├── mcts/                          # 蒙特卡洛树搜索实现
+│   ├── __init__.py                # 模块导出
+│   └── mcts.py                    # AlphaZero MCTS 主体
+├── network/                       # 策略价值网络定义
+│   ├── __init__.py                # 模块导出
+│   ├── ascend_om_net_ais.py       # Ascend 硬件适配网络结构
+│   └── model.py                   # 默认策略价值网络
+├── selfplay/                      # 自对弈数据生成模块
+│   ├── __init__.py                # 模块导出
+│   ├── augment.py                 # 棋谱数据增强
+│   └── selfplay.py                # 自对弈循环实现
+├── trainer/                       # 训练与评测组件
+│   ├── __init__.py                # 模块导出
+│   ├── arena.py                   # 新旧模型对弈评测
+│   ├── dataset.py                 # 自对弈数据集加载
+│   └── trainer.py                 # 训练循环与优化逻辑
+├── utils/                         # 辅助脚本与工具
+│   ├── arena_reduce.py            # 评测结果归并与统计
+│   ├── check-gpu.py               # GPU 资源检查脚本
+│   ├── check-value.py             # 价值输出诊断
+│   ├── distill.py                 # 知识蒸馏辅助脚本
+│   ├── eval_parallel.sh           # 多卡评测调度脚本
+│   ├── model_summary.py           # 模型结构统计
+│   ├── plot_history.py            # Elo 历史可视化
+│   ├── selfplay_parallel.sh       # 多卡自对弈调度脚本
+│   ├── transfer_history_planes.py # 历史平面迁移工具
+│   └── transfer_wider_deeper.py   # 网络增宽/加深迁移
+├── webapp/                        # Flask 前端应用
+│   ├── static/                    # 静态资源
+│   │   └── style.css              # 前端样式定义
+│   ├── templates/                 # HTML 模板
+│   │   └── index.html             # Web 对弈界面
+│   └── app.py                     # Flask 应用入口
+└── requirements.txt               # Python 依赖清单
+```
+
 ## 安装
 
 ```bash
