@@ -2,6 +2,8 @@
 import torch
 
 
+GAME_NAME = "gomoku"
+
 BOARD_SIZE = 15            # 五子棋 15×15
 N_IN_ROW   = 5             # 连五即可胜
 
@@ -28,7 +30,7 @@ SELFPLAY_TEMPERATURE = 1.0   # 前 N_TEMP_MOVES 步使用高温度
 N_TEMP_MOVES         = 10 #10
 
 EVAL_GAMES     = 100
-EVAL_THRESHOLD = 0.55        # ≥55% 胜率则接受新模型
+EVAL_THRESHOLD = 0.55        # legacy (AGZ gating); AZ path no longer deletes models
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'    # 'cpu' or 'cuda'
 MODEL_DIR = 'models'                                       # 保存 ckpt

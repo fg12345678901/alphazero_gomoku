@@ -1,59 +1,74 @@
 # trainer/dataset.py
 from __future__ import annotations
-import os, pickle, glob, random
-import numpy as np
+
+import glob
+import os
+import pickle
+
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 
-from config import DATA_DIR, BUFFER_SIZE, BATCH_SIZE
+from config import BATCH_SIZE, BUFFER_SIZE, DATA_DIR
+
 
 class ReplayBuffer(Dataset):
-    def __init__(self):
+    def __init__(
+        self,
+        data_dir: str = DATA_DIR,
+        buffer_size: int = BUFFER_SIZE,
+        default_batch_size: int = BATCH_SIZE,
+    ):
+        self.data_dir = data_dir
+        self.buffer_size = buffer_size
+        self.default_batch_size = default_batch_size
         self.data = []  # (planes, pi, z)
         self.load_existing()
 
     def load_existing(self):
-        """Load recent self-play data until BUFFER_SIZE is satisfied."""
+        """Load recent self-play data until buffer_size is satisfied."""
         files = sorted(
-            glob.glob(os.path.join(DATA_DIR, "selfplay_*.pkl")),
+            glob.glob(os.path.join(self.data_dir, "selfplay_*.pkl")),
             key=os.path.getmtime,
         )
         chunks = []
         total = 0
-        for f in reversed(files):  # 从最新文件开始向前找
-            with open(f, "rb") as fp:
+        for path in reversed(files):
+            with open(path, "rb") as fp:
                 chunk = pickle.load(fp)
             chunks.append(chunk)
             total += len(chunk)
-            if total >= BUFFER_SIZE:
+            if total >= self.buffer_size:
                 break
-        # 按时间顺序拼接并裁剪
+
         self.data = [item for ch in reversed(chunks) for item in ch]
         self._trim()
 
-    def append_from_file(self, file_path):
+    def append_from_file(self, file_path: str):
         with open(file_path, "rb") as fp:
             self.data.extend(pickle.load(fp))
         self._trim()
 
     def _trim(self):
-        if len(self.data) > BUFFER_SIZE:
-            self.data = self.data[-BUFFER_SIZE:]
+        if len(self.data) > self.buffer_size:
+            self.data = self.data[-self.buffer_size :]
 
-    # ----------- PyTorch Dataset ----------- #
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         planes, pi, z = self.data[idx]
-        return torch.tensor(planes, dtype=torch.float32), \
-               torch.tensor(pi, dtype=torch.float32), \
-               torch.tensor(z, dtype=torch.float32)
+        return (
+            torch.tensor(planes, dtype=torch.float32),
+            torch.tensor(pi, dtype=torch.float32),
+            torch.tensor(z, dtype=torch.float32),
+        )
 
-    # ----------- DataLoader ----------- #
-    def loader(self, shuffle=True, distributed=False, batch_size=BATCH_SIZE):
+    def loader(self, shuffle=True, distributed=False, batch_size: int | None = None):
         """Return DataLoader with optional DistributedSampler and custom batch size."""
+        if batch_size is None:
+            batch_size = self.default_batch_size
+
         if distributed:
             sampler = DistributedSampler(self, shuffle=shuffle)
             return (

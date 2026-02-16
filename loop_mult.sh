@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -e
-trap 'echo "[!] Caught SIGINT – killing children"; kill 0; exit 130' INT TERM
+trap 'echo "[!] Caught SIGINT - killing children"; kill 0; exit 130' INT TERM
+
+GAME=${GAME:-gomoku}
 
 while true; do
-  # ------- 并行 self-play -------
-  bash utils/selfplay_parallel.sh 1000 0 1 2 3
+  # Parallel self-play
+  bash utils/selfplay_parallel.sh 1000 "$GAME" 0 1 2 3
 
-  # ------- DataParallel训练 -------
-  CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py train 
-  # 不单独给 --updates 参数了，统一在config里
+  # DataParallel training
+  CUDA_VISIBLE_DEVICES=0,1,2,3 python main.py train --game "$GAME"
 
-  # ------- 并行 Arena -------
-  bash utils/eval_parallel.sh 104 0 1 2 3
+  # Parallel arena evaluation (monitoring only in AZ mode)
+  bash utils/eval_parallel.sh 104 "$GAME" 0 1 2 3
 done
-

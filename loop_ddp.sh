@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -e
-trap 'echo "[!] Caught SIGINT – killing children"; kill 0; exit 130' INT TERM
+trap 'echo "[!] Caught SIGINT - killing children"; kill 0; exit 130' INT TERM
+
+GAME=${GAME:-gomoku}
 
 while true; do
-  # ------- 并行 self-play -------
-  bash utils/selfplay_parallel.sh 1000 0 1 2 3
+  # Parallel self-play
+  bash utils/selfplay_parallel.sh 1000 "$GAME" 0 1 2 3
 
-  # ------- DDP 训练 -------
-  torchrun --nproc_per_node=4 main.py train --ddp
+  # DDP training
+  torchrun --nproc_per_node=4 main.py train --game "$GAME" --ddp
 
-  # ------- 并行 Arena -------
-  bash utils/eval_parallel.sh 104 0 1 2 3
-
+  # Parallel arena evaluation (monitoring only in AZ mode)
+  bash utils/eval_parallel.sh 104 "$GAME" 0 1 2 3
 done

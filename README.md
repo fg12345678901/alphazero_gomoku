@@ -1,93 +1,86 @@
-# AlphaZero 五子棋
+# AlphaZero Gomoku (AZ-Core Refactor)
 
-本仓库提供了一个基于 PyTorch 的 AlphaZero 五子棋最小实现。项目包含生成自对弈数据、训练神经网络以及评测模型优劣的脚本，同时提供单 GPU 与多 GPU 的自动循环训练方案，便于持续改进模型。
+This repository contains a PyTorch AlphaZero training pipeline for Gomoku.
 
-## 安装
+Recent refactor goals:
+
+1. Move from AGZ-style model gating to AlphaZero-style continuous updates.
+2. Introduce game abstraction so new games (for example Go) can be plugged in.
+3. Keep current Gomoku behavior working while preparing for multi-game support.
+
+## What changed
+
+### 1) AlphaZero update logic
+
+- The training loop now uses **continuous model updates** (single latest network).
+- Arena evaluation is now **monitoring-only**:
+  - no checkpoint rejection
+  - no automatic model deletion
+- Arena move selection is now greedy:
+  - `temp=0`
+  - `add_noise=False`
+
+### 2) Game abstraction
+
+- Added `games/` registry and `GameLike` protocol.
+- Main pipeline (`main.py`, `selfplay`, `trainer`, `arena`) no longer hardcodes `GomokuGame`.
+- Current supported game list:
+  - `gomoku`
+
+### 3) Per-game runtime paths
+
+- Added `runtime_paths.py`.
+- For `gomoku`, legacy paths are preserved:
+  - `models/`, `data/`, `logs/`, `tb/`
+- For future games, outputs are namespaced:
+  - `models/<game>/`, `data/<game>/`, ...
+
+## Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 自对弈
+## CLI
 
-使用当前最佳模型生成训练数据：
+All core commands now accept `--game`:
 
 ```bash
-python main.py selfplay --num-games 100
+python main.py selfplay --game gomoku --num-games 100
+python main.py train --game gomoku --updates 2000
+python main.py evaluate --game gomoku --num-games 400
 ```
 
-## 训练
+If omitted, `--game` defaults to `gomoku`.
 
-在已有自对弈数据上训练网络：
+## Continuous loop scripts
 
-```bash
-python main.py train --updates 2000
-```
-
-## 评测
-
-让新模型与当前最佳模型对战，如果胜率足够高则更新：
+Single GPU:
 
 ```bash
-python main.py evaluate --num-games 400
-```
-
-## 自动循环
-
-若希望持续执行自对弈、训练和评测，可使用循环脚本：
-
-```bash
-# 单 GPU 循环
 bash loop.sh
+```
 
-# 多 GPU 循环（DataParallel）
+Multi GPU (DataParallel):
+
+```bash
 bash loop_mult.sh
+```
 
-# 多 GPU 循环（DDP）
+Multi GPU (DDP):
+
+```bash
 bash loop_ddp.sh
 ```
 
-`loop_mult.sh` 会调用 `utils/selfplay_parallel.sh` 与 `utils/eval_parallel.sh` 在多卡上并行完成自对弈与评测，并使用 `DataParallel` 进行训练。根据硬件环境可调整脚本中的 GPU 编号及局数、更新次数等参数。
-
-`loop_ddp.sh` 则基于 `torchrun` 启动多个进程，使用 `DistributedDataParallel` 以获得更好的多卡效率。DDP 模式会自动按进程数均分 `BATCH_SIZE`，从而保持与单卡/DP 相同的全局批次大小。
-
-## 查看模型实力曲线
-
-无论单卡评测还是使用 `utils/eval_parallel.sh` 并行评测，结果都会转换为 Elo，写入 `logs/elo_history.csv`，并同步到 TensorBoard 的 `tb/eval` 目录。其中 `elo_by_step` 展示评测次数与 Elo 的关系，`elo_by_time` 以时间为横轴。启动 TensorBoard 即可查看曲线：
+You can override game by environment variable:
 
 ```bash
-tensorboard --logdir tb
+GAME=gomoku bash loop_mult.sh
 ```
 
-也可使用脚本生成图片：
+## Notes for future Go integration
 
-```bash
-python utils/plot_history.py --csv logs/elo_history.csv --out elo.png
-```
-脚本会生成一张包含两条曲线的图片：左侧为评测次数与 Elo 的关系，右侧为时间与 Elo 的关系。这样便能直观地观察模型实力随时间与评测次数的变化。
-
-## 命令行对弈
-
-无需启动网页前端，也可以直接在终端中与 AI 对弈。使用 `evaluate.py` 并指定模型路径：
-
-```bash
-python evaluate.py --model1 models/best.pt --human --human-color black
-```
-
-`--human` 开启人机对战，`--human-color` 指定人类执棋颜色，可选 `black` 或 `white`（默认白棋）。
-若要让两个模型互博，可同时提供 `--model2` 并设置对局次数 `--games`。
-
-## 网页对弈
-
-项目附带一个简单的 Flask 前端，可用于和 AI 或其他玩家在浏览器中对弈。
-
-```bash
-# 启动服务器
-python -m webapp.app
-```
-
-默认会尝试加载 `models/` 目录下最新的网络参数，如无模型将使用随机初始化的网络。
-启动后在浏览器访问 `http://localhost:5000` 即可。
-界面支持明暗主题切换、展示搜索概率和 AI 价值曲线，同时可以查看并复制走子记录，
-也可以点击“下载棋盘”将当前局面保存为图片。现已加入获胜彩带特效以及更流畅的落子格动画。
-此外新增“深度分析”按钮，可自定义 MCTS 搜索次数，对当前局面进行额外计算，结果将以黄色圆点形式标注在价值曲线中。
+- The pipeline is now game-injectable.
+- The remaining work for Go is to implement/register a Go game adapter and map its
+  action/state representation to the current network and MCTS interfaces.
