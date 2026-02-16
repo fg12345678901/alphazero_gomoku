@@ -134,7 +134,12 @@ def _parse_move(s: str, size: int) -> Optional[Tuple[int, int]]:
 def _load_net(path: str | Path) -> AlphaZeroNet:
     """Load network weights to DEVICE."""
     net = AlphaZeroNet().to(DEVICE)
-    net.load_state_dict(torch.load(path, map_location=DEVICE))
+    payload = torch.load(path, map_location=DEVICE)
+    if isinstance(payload, dict) and "state_dict" in payload:
+        state_dict = payload["state_dict"]
+    else:
+        state_dict = payload
+    net.load_state_dict(state_dict)
     net.eval()
     return net
 

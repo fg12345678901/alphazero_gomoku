@@ -1,21 +1,37 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Callable
 
-from config import BOARD_SIZE, GAME_NAME, N_IN_ROW
+from config import GAME_NAME, get_rule_config
 from gomoku.game import GomokuGame
 
 from .base import GameLike
+from .go_openspiel import GoOpenSpielGame
 
 GameFactory = Callable[[], GameLike]
 
 
 def _make_gomoku() -> GomokuGame:
-    return GomokuGame(BOARD_SIZE, N_IN_ROW)
+    rules = get_rule_config("gomoku")
+    return GomokuGame(
+        size=rules.board_size,
+        n_in_row=rules.n_in_row or 5,
+        history_steps=rules.history_steps,
+    )
+
+
+def _make_go() -> GoOpenSpielGame:
+    rules = get_rule_config("go")
+    return GoOpenSpielGame(
+        board_size=rules.board_size,
+        komi=rules.komi if rules.komi is not None else 7.5,
+        history_steps=rules.history_steps,
+    )
 
 
 GAME_FACTORIES: dict[str, GameFactory] = {
     "gomoku": _make_gomoku,
+    "go": _make_go,
 }
 
 

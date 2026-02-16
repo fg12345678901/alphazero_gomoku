@@ -1,5 +1,4 @@
-# trainer/trainer.py
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import glob
@@ -21,16 +20,24 @@ from tqdm import trange
 from config import (
     BATCH_SIZE,
     BUFFER_SIZE,
+    CHANNELS,
     DEVICE,
-    EVAL_GAMES,
     GAME_NAME,
     LEARNING_RATE,
+    NUM_RES,
     TRAIN_UPDATES,
     WEIGHT_DECAY,
+    get_search_config,
 )
 from games.base import GameLike
 from games.registry import create_game, normalize_game_name
-from network.model import AlphaZeroNet
+from network.checkpoint import (
+    build_model_for_game,
+    checkpoint_meta,
+    load_checkpoint,
+    save_checkpoint,
+    validate_checkpoint_meta,
+)
 from runtime_paths import RuntimePaths, resolve_runtime_paths
 from trainer.arena import Arena
 from trainer.dataset import ReplayBuffer
@@ -50,6 +57,8 @@ class Trainer:
         self.distributed = distributed
         self.game_name = normalize_game_name(game_name)
         self.game = game if game is not None else create_game(self.game_name)
+        self.game_spec = self.game.getGameSpec()
+        self.search_cfg = get_search_config(self.game_name)
         self.paths = paths if paths is not None else resolve_runtime_paths(self.game_name)
 
         os.makedirs(self.paths.model_dir, exist_ok=True)
@@ -64,7 +73,7 @@ class Trainer:
         else:
             self.device = torch.device(DEVICE)
 
-        self.net = AlphaZeroNet().to(self.device)
+        self.net = build_model_for_game(self.game, device=self.device)
         if distributed:
             self.net = nn.parallel.DistributedDataParallel(
                 self.net,
@@ -135,6 +144,7 @@ class Trainer:
             desc=f"Training[{self.game_name}]",
             disable=self.distributed and dist.get_rank() != 0,
         )
+
         for step in progress:
             if sampler:
                 sampler.set_epoch(step)
@@ -174,22 +184,31 @@ class Trainer:
 
     def evaluate_and_update(
         self,
-        num_games: int = EVAL_GAMES,
+        num_games: int | None = None,
         out: str | None = None,
         no_update: bool = False,
     ):
+        if num_games is None:
+            num_games = self.search_cfg.eval_games
+
         latest_path = self._latest_model_path()
         prev_path = self._previous_model_path()
         if not latest_path or not prev_path:
             logger.info("No previous model under %s, skipping arena.", self.paths.model_dir)
             return
 
-        net_new = AlphaZeroNet().to(DEVICE)
-        net_old = AlphaZeroNet().to(DEVICE)
+        net_new = build_model_for_game(self.game, device=DEVICE)
+        net_old = build_model_for_game(self.game, device=DEVICE)
         logger.info("Load NEW model: %s", latest_path)
         logger.info("Load OLD model: %s", prev_path)
-        net_new.load_state_dict(torch.load(latest_path, map_location=DEVICE))
-        net_old.load_state_dict(torch.load(prev_path, map_location=DEVICE))
+
+        sd_new, meta_new = load_checkpoint(latest_path, map_location=DEVICE)
+        sd_old, meta_old = load_checkpoint(prev_path, map_location=DEVICE)
+        validate_checkpoint_meta(meta_new, self.game_spec)
+        validate_checkpoint_meta(meta_old, self.game_spec)
+
+        net_new.load_state_dict(sd_new)
+        net_old.load_state_dict(sd_old)
         net_new.eval()
         net_old.eval()
 
@@ -199,6 +218,8 @@ class Trainer:
             net2=net_old,
             games=num_games,
             show_progress=not no_update,
+            game_name=self.game_name,
+            search_cfg=self.search_cfg,
         )
         n1, n2, d = arena.play()
 
@@ -260,7 +281,7 @@ class Trainer:
                     d,
                     f"{win_rate:.4f}",
                     f"{new_elo:.2f}",
-                    1,  # kept for backward compatibility, AZ mode does not gate model updates
+                    1,
                 ]
             )
 
@@ -280,9 +301,18 @@ class Trainer:
             return
         if timestamp is None:
             timestamp = int(time.time())
+
         fname = os.path.join(self.paths.model_dir, f"net_{timestamp}.pt")
-        state = self.net.module.state_dict() if hasattr(self.net, "module") else self.net.state_dict()
-        torch.save(state, fname)
+        target = self.net.module if hasattr(self.net, "module") else self.net
+        state = target.state_dict()
+
+        meta = checkpoint_meta(
+            game_spec=self.game_spec,
+            game_name=self.game_name,
+            channels=CHANNELS,
+            blocks=NUM_RES,
+        )
+        save_checkpoint(fname, state, meta)
         logger.info("Model saved to %s", fname)
 
     def _latest_model_path(self):
@@ -297,5 +327,7 @@ class Trainer:
         path = self._latest_model_path()
         if path:
             target = self.net.module if hasattr(self.net, "module") else self.net
-            target.load_state_dict(torch.load(path, map_location=self.device))
+            state_dict, meta = load_checkpoint(path, map_location=self.device)
+            validate_checkpoint_meta(meta, self.game_spec)
+            target.load_state_dict(state_dict)
             logger.info("Loaded model %s", path)

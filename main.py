@@ -1,11 +1,10 @@
-# main.py
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import glob
 import os
 
-from config import DEVICE, EVAL_GAMES, GAME_NAME, TRAIN_UPDATES
+from config import DEVICE, GAME_NAME, TRAIN_UPDATES
 from games.registry import available_games, create_game
 from logging_setup import setup_logging
 from runtime_paths import resolve_runtime_paths
@@ -46,7 +45,7 @@ def main():
 
     p_ev = sub.add_parser("evaluate")
     _add_game_arg(p_ev)
-    p_ev.add_argument("--num-games", type=int, default=EVAL_GAMES)
+    p_ev.add_argument("--num-games", type=int, default=None, help="override default eval games")
     p_ev.add_argument("--out", type=str, default=None, help="save per-GPU arena result JSON")
     p_ev.add_argument(
         "--no-update",
@@ -56,7 +55,10 @@ def main():
 
     args = parser.parse_args()
     paths = resolve_runtime_paths(args.game)
-    game = create_game(args.game)
+    try:
+        game = create_game(args.game)
+    except ImportError as exc:
+        parser.error(str(exc))
 
     if args.cmd == "selfplay":
         sp = SelfPlayWorker(

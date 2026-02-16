@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import threading
 
@@ -12,13 +12,13 @@ from copy import deepcopy
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from gomoku.game import GomokuGame
-from network.model import AlphaZeroNet
 from mcts.mcts import MCTS
-from config import DEVICE, MCTS_SIMS
+from config import DEVICE, MCTS_SIMS, get_rule_config
+from network.checkpoint import build_model_for_game, load_checkpoint, validate_checkpoint_meta
 
 app = Flask(__name__)
 
-# ---------------- 工具函数 ----------------
+# ---------------- 宸ュ叿鍑芥暟 ----------------
 def latest_model():
     files = glob.glob(os.path.join('models', 'net_*.pt'))
     if not files:
@@ -49,7 +49,8 @@ def load_model(path):
         if _LOADED_MODEL_PATH == resolved:
             CURRENT_MODEL_PATH = resolved
             return True
-        state_dict = torch.load(resolved, map_location=DEVICE)
+        state_dict, meta = load_checkpoint(resolved, map_location=DEVICE)
+        validate_checkpoint_meta(meta, GAME.getGameSpec())
         NET.load_state_dict(state_dict)
         NET.eval()
         _LOADED_MODEL_PATH = resolved
@@ -57,7 +58,8 @@ def load_model(path):
     return True
 
 def evaluate(net, game, board):
-    planes = game.getCanonicalForm(board, board.current_player)
+    current_player = game.getCurrentPlayer(board)
+    planes = game.getCanonicalForm(board, current_player)
     x = torch.tensor(planes, dtype=torch.float32, device=DEVICE).unsqueeze(0)
     with torch.no_grad():
         policy, value = net(x)
@@ -71,10 +73,11 @@ def evaluate(net, game, board):
         policy = valids / valids.sum()
     return policy.tolist(), float(value.item())
 
-# ---------------- 全局对局状态 ----------------
+# ---------------- 鍏ㄥ眬瀵瑰眬鐘舵€?----------------
 
-GAME = GomokuGame()
-NET = AlphaZeroNet().to(DEVICE)
+_RULES = get_rule_config('gomoku')
+GAME = GomokuGame(size=_RULES.board_size, n_in_row=_RULES.n_in_row or 5, history_steps=_RULES.history_steps)
+NET = build_model_for_game(GAME, device=DEVICE)
 MODEL_LOCK = threading.Lock()
 CURRENT_MODEL_PATH = latest_model()
 _LOADED_MODEL_PATH = None
@@ -85,10 +88,10 @@ MCTS_OBJ = MCTS(GAME, NET)
 HISTORY = []
 VALUE_CURVE = []
 MODE = 'human_ai'  # human_ai, human_human, ai_ai
-HUMAN_PLAYER = 1   # 1 黑, -1 白
-POLICY = []        # 当前局面的网络落子概率
+HUMAN_PLAYER = 1   # 1 榛? -1 鐧?
+POLICY = []        # 褰撳墠灞€闈㈢殑缃戠粶钀藉瓙姒傜巼
 
-# ---------------- 路由 ----------------
+# ---------------- 璺敱 ----------------
 @app.route('/')
 def index():
     return render_template('index.html', size=GAME.size)
@@ -115,13 +118,13 @@ def start_game():
     HISTORY = []
     VALUE_CURVE = []
     policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value * BOARD.current_player)
+    VALUE_CURVE.append(value * GAME.getCurrentPlayer(BOARD))
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
-    if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
+    if MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
         ai_move()
     return jsonify(success=True,
                    board=BOARD.board.tolist(),
-                   current_player=int(BOARD.current_player),
+                   current_player=int(GAME.getCurrentPlayer(BOARD)),
                    history=HISTORY,
                    policy=POLICY,
                    value_curve=VALUE_CURVE,
@@ -131,14 +134,14 @@ def start_game():
 def get_state():
     winner = BOARD.get_winner()
     return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(BOARD.current_player),
+                   current_player=int(GAME.getCurrentPlayer(BOARD)),
                    history=HISTORY,
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
                    model=os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None,
                    winner=winner)
 
-# 对当前棋盘进行网络前向，返回先验概率
+# 瀵瑰綋鍓嶆鐩樿繘琛岀綉缁滃墠鍚戯紝杩斿洖鍏堥獙姒傜巼
 @app.route('/prior', methods=['POST'])
 def calc_prior():
     data = request.get_json(force=True)
@@ -151,7 +154,7 @@ def calc_prior():
     policy, _ = evaluate(NET, GAME, tmp_board)
     return jsonify(policy=np.array(policy).reshape(GAME.size, GAME.size).tolist())
 
-# 辅助函数：AI 落子
+# 杈呭姪鍑芥暟锛欰I 钀藉瓙
 def ai_move():
     global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, POLICY
     pi = MCTS_OBJ.get_action_probs(BOARD, temp=0)
@@ -159,12 +162,12 @@ def ai_move():
     BOARD, _ = GAME.getNextState(BOARD, move)
     HISTORY.append(move)
     policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value * BOARD.current_player)
+    VALUE_CURVE.append(value * GAME.getCurrentPlayer(BOARD))
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
 
 @app.route('/ai_step', methods=['POST'])
 def ai_step():
-    """在 AI 对战模式下执行一步 AI 行棋"""
+    """鍦?AI 瀵规垬妯″紡涓嬫墽琛屼竴姝?AI 琛屾"""
     global BOARD, HISTORY, VALUE_CURVE, POLICY
     if MODE != 'ai_ai':
         return jsonify(error='invalid mode'), 400
@@ -173,7 +176,7 @@ def ai_step():
     ai_move()
     winner = BOARD.get_winner()
     return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(BOARD.current_player),
+                   current_player=int(GAME.getCurrentPlayer(BOARD)),
                    history=HISTORY,
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
@@ -187,23 +190,23 @@ def make_move():
     y = int(data['y'])
     if BOARD.board[x, y] != 0:
         return jsonify(error='invalid'), 400
-    if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
+    if MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
         return jsonify(error='not your turn'), 400
     move = BOARD.coord_to_move(x, y)
     BOARD, _ = GAME.getNextState(BOARD, move)
     HISTORY.append(move)
     policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value * BOARD.current_player)
+    VALUE_CURVE.append(value * GAME.getCurrentPlayer(BOARD))
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
 
     winner = BOARD.get_winner()
-    # 如果轮到AI
-    if winner is None and MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER:
+    # 濡傛灉杞埌AI
+    if winner is None and MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
         ai_move()
         winner = BOARD.get_winner()
 
     return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(BOARD.current_player),
+                   current_player=int(GAME.getCurrentPlayer(BOARD)),
                    history=HISTORY,
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
@@ -215,23 +218,23 @@ def undo():
     if not HISTORY:
         return jsonify(error='no moves'), 400
 
-    # 撤销一步
+    # 鎾ら攢涓€姝?
     HISTORY.pop()
     BOARD.undo_move()
     if VALUE_CURVE:
         VALUE_CURVE.pop()
 
-    # 如果是人机模式并且轮到 AI，下退一步以回到玩家手动决策前的局面
-    if MODE != 'human_human' and BOARD.current_player != HUMAN_PLAYER and HISTORY:
+    # 濡傛灉鏄汉鏈烘ā寮忓苟涓旇疆鍒?AI锛屼笅閫€涓€姝ヤ互鍥炲埌鐜╁鎵嬪姩鍐崇瓥鍓嶇殑灞€闈?
+    if MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER and HISTORY:
         HISTORY.pop()
         BOARD.undo_move()
         if VALUE_CURVE:
             VALUE_CURVE.pop()
 
-    # 重新评估当前局面
+    # 閲嶆柊璇勪及褰撳墠灞€闈?
     MCTS_OBJ = MCTS(GAME, NET, getattr(MCTS_OBJ, 'sims', MCTS_SIMS))
     policy, value = evaluate(NET, GAME, BOARD)
-    value = value * BOARD.current_player
+    value = value * GAME.getCurrentPlayer(BOARD)
     if VALUE_CURVE:
         VALUE_CURVE[-1] = value
     else:
@@ -240,13 +243,13 @@ def undo():
     POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
     winner = BOARD.get_winner()
     return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(BOARD.current_player),
+                   current_player=int(GAME.getCurrentPlayer(BOARD)),
                    history=HISTORY,
                    value_curve=VALUE_CURVE,
                    policy=POLICY,
                    winner=winner)
 
-# 使用 MCTS 对当前局面进行深入搜索，返回搜索概率和估值
+# 浣跨敤 MCTS 瀵瑰綋鍓嶅眬闈㈣繘琛屾繁鍏ユ悳绱紝杩斿洖鎼滅储姒傜巼鍜屼及鍊?
 @app.route('/analyze', methods=['POST'])
 def analyze():
     data = request.get_json(force=True)
@@ -259,7 +262,8 @@ def analyze():
         if (s_root, a) in mcts.Qsa:
             value += pi[a] * mcts.Qsa[(s_root, a)]
     policy = np.array(pi).reshape(GAME.size, GAME.size).tolist()
-    return jsonify(policy=policy, value=float(value * BOARD.current_player))
+    return jsonify(policy=policy, value=float(value * GAME.getCurrentPlayer(BOARD)))
 
 if __name__ == '__main__':
     app.run(debug=True)
+

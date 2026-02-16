@@ -1,21 +1,36 @@
-# gomoku/game.py
+﻿from __future__ import annotations
+
+from typing import List, Tuple
+
 import numpy as np
-from typing import Tuple, List
-from .board import Board
+
+from games.base import GameSpec
 from selfplay.augment import rotate_flip
 
+from .board import Board
+
+
 class GomokuGame:
-    """
-    AlphaZero 接口封装:
-      • getInitBoard        -> numpy 状态(INPUT_PLANES×S×S)
-      • getNextState, getValidMoves, getGameEnded, getCanonicalForm
-      • stringRepresentation(用于哈希)
-    """
-    def __init__(self, size=15, n_in_row=5):
+    def __init__(
+        self,
+        size: int = 15,
+        n_in_row: int = 5,
+        history_steps: int = 3,
+    ):
         self.size = size
         self.n_in_row = n_in_row
+        self.history_steps = history_steps
+        self.input_planes = 2 * history_steps + 1
+        self._spec = GameSpec(
+            name="gomoku",
+            board_size=self.size,
+            action_size=self.size * self.size,
+            input_planes=self.input_planes,
+        )
 
-    # ---------- 接口 ---------- #
+    def getGameSpec(self) -> GameSpec:
+        return self._spec
+
     def getInitBoard(self) -> Board:
         return Board(self.size, self.n_in_row)
 
@@ -23,7 +38,10 @@ class GomokuGame:
         return (self.size, self.size)
 
     def getActionSize(self) -> int:
-        return self.size * self.size
+        return self._spec.action_size
+
+    def getCurrentPlayer(self, board: Board) -> int:
+        return int(board.current_player)
 
     def getNextState(self, board: Board, action: int) -> Tuple[Board, int]:
         b = board.copy()
@@ -38,26 +56,19 @@ class GomokuGame:
     def getGameEnded(self, board: Board, player: int) -> float:
         winner = board.get_winner()
         if winner is None:
-            return 0
-        elif winner == 0:
-            return 1e-4  # 平局略大于0 防梯度消失
-        elif winner == player:
-            return 1
-        else:
-            return -1
+            return 0.0
+        if winner == 0:
+            return 1e-4
+        return 1.0 if winner == player else -1.0
 
     def getCanonicalForm(self, board: Board, player: int) -> np.ndarray:
-        """返回以 `player` 视角的時序特徵平面"""
-        from config import HISTORY_STEPS, INPUT_PLANES
+        planes = np.zeros((self.input_planes, self.size, self.size), dtype=np.float32)
 
-        planes = np.zeros((INPUT_PLANES, self.size, self.size), dtype=np.float32)
-
-        # 逐步回溯棋谱，生成當前及歷史局面，不足部分以 0 填充
         state = board.board.copy()
         history = board.move_history
-        for i in range(HISTORY_STEPS):
+        for i in range(self.history_steps):
             planes[i] = (state == player).astype(np.float32)
-            planes[i + HISTORY_STEPS] = (state == -player).astype(np.float32)
+            planes[i + self.history_steps] = (state == -player).astype(np.float32)
             if i < len(history):
                 move = history[-1 - i]
                 x, y = board.move_to_coord(move)
@@ -65,22 +76,24 @@ class GomokuGame:
             else:
                 state.fill(0)
 
-        planes[-1].fill(player)
+        planes[-1].fill(float(player))
         return planes
 
-    def getSymmetries(self, board_planes: np.ndarray, pi: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """八向对称增强"""
+    def getSymmetries(
+        self,
+        board_planes: np.ndarray,
+        pi: np.ndarray,
+    ) -> List[Tuple[np.ndarray, np.ndarray]]:
         size = self.size
         pi_board = pi.reshape((size, size))
         syms = []
         for k in range(4):
-            for flip in [False, True]:
+            for flip in (False, True):
                 new_planes = rotate_flip(board_planes, k, flip)
                 new_pi = rotate_flip(pi_board, k, flip).ravel()
                 syms.append((new_planes, new_pi))
         return syms
 
     def stringRepresentation(self, board: Board) -> bytes:
-        """唯一可哈希的局面表示（含执子信息）"""
         player_byte = bytes([1 if board.current_player == 1 else 0])
         return board.board.tobytes() + player_byte

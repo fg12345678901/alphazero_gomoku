@@ -1,0 +1,2 @@
+﻿-r requirements.txt
+open-spiel>=1.6.11

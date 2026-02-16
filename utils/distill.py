@@ -25,6 +25,7 @@ from config import (
     BOARD_SIZE,
     CHANNELS,
     NUM_RES,
+    INPUT_PLANES,
     DEVICE,
     BATCH_SIZE,
     TRAIN_UPDATES,
@@ -35,6 +36,7 @@ from config import (
 from network.model import AlphaZeroNet
 from trainer.dataset import ReplayBuffer
 from logging_setup import setup_logging
+from network.checkpoint import load_checkpoint
 
 
 logger = setup_logging()
@@ -53,13 +55,30 @@ class Distiller:
         os.makedirs(self.out_dir, exist_ok=True)
 
         logger.info(f"Loading teacher model from {teacher_path}")
-        self.teacher = AlphaZeroNet().to(DEVICE)
-        self.teacher.load_state_dict(torch.load(teacher_path, map_location=DEVICE))
+        teacher_sd, teacher_meta = load_checkpoint(teacher_path, map_location=DEVICE)
+
+        teacher_kwargs = {}
+        if teacher_meta:
+            teacher_kwargs = {
+                "board_size": int(teacher_meta.get("board_size", BOARD_SIZE)),
+                "action_size": int(teacher_meta.get("action_size", BOARD_SIZE * BOARD_SIZE)),
+                "input_planes": int(teacher_meta.get("input_planes", INPUT_PLANES)),
+                "channels": int(teacher_meta.get("channels", CHANNELS)),
+                "blocks": int(teacher_meta.get("blocks", NUM_RES)),
+            }
+
+        self.teacher = AlphaZeroNet(**teacher_kwargs).to(DEVICE)
+        self.teacher.load_state_dict(teacher_sd)
         self.teacher.eval()
 
         logger.info(f"Initializing student model: channels={channels}, blocks={blocks}")
-        self.student = AlphaZeroNet(board_size=BOARD_SIZE, channels=channels,
-                                   blocks=blocks).to(DEVICE)
+        self.student = AlphaZeroNet(
+            board_size=self.teacher.board_size,
+            action_size=self.teacher.action_size,
+            input_planes=self.teacher.input_planes,
+            channels=channels,
+            blocks=blocks,
+        ).to(DEVICE)
         self.optimizer = optim.Adam(self.student.parameters(), lr=lr,
                                     weight_decay=weight_decay)
 

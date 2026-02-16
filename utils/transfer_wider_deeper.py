@@ -17,6 +17,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[1]))   # 项目根目录
 from network.model import AlphaZeroNet, ResidualBlock
 from config import MODEL_DIR, BOARD_SIZE, DEVICE
+from network.checkpoint import load_checkpoint
 
 # ----------------- helpers ----------------- #
 def latest_ckpt() -> str | None:
@@ -88,8 +89,9 @@ def migrate():
         raise FileNotFoundError("未找到旧模型，请先训练一个 baseline 再迁移。")
     print(f"[+] Loading old checkpoint: {old_path}")
 
+    old_sd, _ = load_checkpoint(old_path, map_location=DEVICE)
     old_net = AlphaZeroNet().to(DEVICE)                    # 128 × 6
-    old_net.load_state_dict(torch.load(old_path, map_location=DEVICE))
+    old_net.load_state_dict(old_sd)
     old_net.eval()
 
     new_channels, new_blocks = 256, 15

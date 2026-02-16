@@ -1,5 +1,4 @@
-# selfplay/selfplay.py
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import os
@@ -8,14 +7,17 @@ import time
 from typing import List
 
 import numpy as np
-import torch
 from tqdm import trange
 
-from config import DATA_DIR, DEVICE, GAME_NAME, N_TEMP_MOVES, SELFPLAY_TEMPERATURE
+from config import DATA_DIR, DEVICE, GAME_NAME, get_search_config
 from games.base import GameLike
 from games.registry import create_game, normalize_game_name
 from mcts.mcts import MCTS
-from network.model import AlphaZeroNet
+from network.checkpoint import (
+    build_model_for_game,
+    load_checkpoint,
+    validate_checkpoint_meta,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,17 +33,32 @@ class SelfPlayWorker:
     ):
         self.game_name = normalize_game_name(game_name)
         self.game = game if game is not None else create_game(self.game_name)
+        self.search_cfg = get_search_config(self.game_name)
+
         self.out_dir = out_dir or DATA_DIR
         os.makedirs(self.out_dir, exist_ok=True)
 
-        self.net = AlphaZeroNet().to(DEVICE)
+        self.net = build_model_for_game(self.game, device=DEVICE)
         if net_path and os.path.exists(net_path):
-            self.net.load_state_dict(torch.load(net_path, map_location=DEVICE))
+            state_dict, meta = load_checkpoint(net_path, map_location=DEVICE)
+            validate_checkpoint_meta(meta, self.game.getGameSpec())
+            self.net.load_state_dict(state_dict)
             logger.info("Loaded model %s", net_path)
+
         self.net.eval()
-        self.mcts = MCTS(self.game, self.net)
+        self.mcts = self._create_mcts()
         self.num_games = num_games
         self.examples: List = []
+
+    def _create_mcts(self) -> MCTS:
+        return MCTS(
+            self.game,
+            self.net,
+            sims=self.search_cfg.mcts_sims,
+            cpuct=self.search_cfg.cpuct,
+            dirichlet_alpha=self.search_cfg.dirichlet_alpha,
+            dirichlet_eps=self.search_cfg.dirichlet_eps,
+        )
 
     def run(self):
         for _ in trange(self.num_games, desc=f"Self-play[{self.game_name}]"):
@@ -55,31 +72,36 @@ class SelfPlayWorker:
 
     def play_single(self):
         board = self.game.getInitBoard()
-        # Use a fresh tree for each game to avoid cross-game search contamination.
-        self.mcts = MCTS(self.game, self.net)
+        self.mcts = self._create_mcts()
 
         examples = []
         step = 0
         while True:
-            temp = SELFPLAY_TEMPERATURE if step < N_TEMP_MOVES else 0
-            # AlphaZero self-play uses root Dirichlet noise to encourage exploration.
-            pi = self.mcts.get_action_probs(board, temp=temp, add_noise=True)
-            canonical = self.game.getCanonicalForm(board, board.current_player)
-            examples.append((canonical, pi, board.current_player))
+            temp = (
+                self.search_cfg.selfplay_temperature
+                if step < self.search_cfg.n_temp_moves
+                else 0
+            )
 
-            move = np.random.choice(self.game.getActionSize(), p=pi)
+            pi = self.mcts.get_action_probs(board, temp=temp, add_noise=True)
+            current_player = self.game.getCurrentPlayer(board)
+            canonical = self.game.getCanonicalForm(board, current_player)
+            examples.append((canonical, pi, current_player))
+
+            move = int(np.random.choice(self.game.getActionSize(), p=pi))
             board, _ = self.game.getNextState(board, move)
 
-            result = self.game.getGameEnded(board, board.current_player)
+            next_player = self.game.getCurrentPlayer(board)
+            result = self.game.getGameEnded(board, next_player)
             if result != 0:
                 final_examples = []
-                for planes, pi, player in examples:
-                    z = result if player == board.current_player else -result
+                for planes, pi_item, player in examples:
+                    z = result if player == next_player else -result
 
-                    for sym_planes, sym_pi in self.game.getSymmetries(planes, pi):
+                    for sym_planes, sym_pi in self.game.getSymmetries(planes, pi_item):
                         final_examples.append((sym_planes, sym_pi, z))
 
-                        # Keep the historical behavior of duplicating turn-plane inversion.
+                        # Keep historical behavior: duplicate with sign-inverted turn plane.
                         planes_turn_flipped = sym_planes.copy()
                         planes_turn_flipped[-1] *= -1
                         final_examples.append((planes_turn_flipped, sym_pi, z))

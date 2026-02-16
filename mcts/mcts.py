@@ -1,145 +1,161 @@
-# mcts/mcts.py
-from __future__ import annotations
+﻿from __future__ import annotations
+
 import math
+
 import numpy as np
 import torch
-from typing import Dict
-from config import (MCTS_SIMS, CPUCT, DEVICE,
-                    DIRICHLET_ALPHA, DIRICHLET_EPS)
+
+from config import CPUCT, DEVICE, DIRICHLET_ALPHA, DIRICHLET_EPS, MCTS_SIMS
 from network.model import AlphaZeroNet
 
-class TreeNode:
-    __slots__ = ("P","N","W","Q","children")
-    def __init__(self, P):
-        self.P = P        # 先验概率
-        self.N = 0        # 访问次数
-        self.W = 0.0      # 累积价值
-        self.Q = 0.0      # 平均价值
-        self.children: Dict[int, TreeNode] = {}
 
 class MCTS:
-    def __init__(self, game, net: AlphaZeroNet, sims: int = MCTS_SIMS):
+    def __init__(
+        self,
+        game,
+        net: AlphaZeroNet,
+        sims: int = MCTS_SIMS,
+        cpuct: float = CPUCT,
+        dirichlet_alpha: float = DIRICHLET_ALPHA,
+        dirichlet_eps: float = DIRICHLET_EPS,
+    ):
         self.game = game
-        self.net  = net
+        self.net = net
         self.sims = sims
-        self.Qsa   = {}  # (s,a) -> Q
-        self.Nsa   = {}  # (s,a) -> N
-        self.Ns    = {}  # s -> N
-        self.Ps    = {}  # s -> policy vector
-        self.Es    = {}  # s -> gameEnded
-        self.Vs    = {}  # s -> valid moves mask
-        self.W     = {}  # (s,a) -> 累积价值
+        self.cpuct = cpuct
+        self.dirichlet_alpha = dirichlet_alpha
+        self.dirichlet_eps = dirichlet_eps
 
-    # ----------------------- 公共接口 ----------------------- #
-    def get_action_probs(self, board, temp=1.0, add_noise: bool = False):
-        """
-        返回当前棋盘的概率分布 π
-        add_noise=True 时（自我对弈）在根节点混 Dirichlet 噪声
-        """
+        self.Qsa = {}  # (s, a) -> Q
+        self.Nsa = {}  # (s, a) -> N
+        self.Ns = {}  # s -> N
+        self.Ps = {}  # s -> policy
+        self.Es = {}  # s -> gameEnded
+        self.Vs = {}  # s -> valid moves
+        self.W = {}  # (s, a) -> total value
 
+    def get_action_probs(self, board, temp: float = 1.0, add_noise: bool = False) -> np.ndarray:
         s_root = self.game.stringRepresentation(board)
 
-        # ------------- 如需探索噪声，先保证根节点已扩展 -------------
         if add_noise:
             if s_root not in self.Ps:
-                # 先扩展一次，得到 Ps 与 Vs
                 self.search(board)
             self._add_dirichlet_noise(s_root)
 
-        # ------------ 正常的蒙特卡洛树搜索 -------------
         for _ in range(self.sims):
             self.search(board)
 
         s = self.game.stringRepresentation(board)
-        counts = np.zeros(self.game.getActionSize(), dtype=np.float32)
-        for a in range(self.game.getActionSize()):
+        action_size = self.game.getActionSize()
+        counts = np.zeros(action_size, dtype=np.float32)
+        for a in range(action_size):
             if (s, a) in self.Nsa:
                 counts[a] = self.Nsa[(s, a)]
 
+        valids = self.Vs.get(s)
+        if valids is None:
+            valids = self.game.getValidMoves(board).astype(np.float32)
+
         if temp == 0:
-            best_as = np.argwhere(counts == np.max(counts)).flatten()
+            max_count = np.max(counts)
+            if max_count <= 0:
+                legal = np.flatnonzero(valids)
+                probs = np.zeros_like(counts)
+                probs[np.random.choice(legal)] = 1.0
+                return probs
+
+            best_as = np.flatnonzero(counts == max_count)
             probs = np.zeros_like(counts)
             probs[np.random.choice(best_as)] = 1.0
             return probs
 
-        counts = counts ** (1. / temp)
-        probs = counts / np.sum(counts)
-        return probs
+        counts = counts ** (1.0 / temp)
+        total = float(np.sum(counts))
+        if total <= 0:
+            legal_sum = float(np.sum(valids))
+            if legal_sum <= 0:
+                return np.full(action_size, 1.0 / action_size, dtype=np.float32)
+            return (valids / legal_sum).astype(np.float32)
 
-    # ----------------------- 树搜索 ----------------------- #
+        return (counts / total).astype(np.float32)
+
     def search(self, board):
         s = self.game.stringRepresentation(board)
+        player = self.game.getCurrentPlayer(board)
 
         if s not in self.Es:
-            self.Es[s] = self.game.getGameEnded(board, board.current_player)
+            self.Es[s] = self.game.getGameEnded(board, player)
         if self.Es[s] != 0:
             return -self.Es[s]
 
         if s not in self.Ps:
-            # 神经网络扩展
-            canonical = self.game.getCanonicalForm(board, board.current_player)
-            canonical = torch.tensor(canonical, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+            canonical = self.game.getCanonicalForm(board, player)
+            x = torch.tensor(canonical, dtype=torch.float32, device=DEVICE).unsqueeze(0)
             with torch.no_grad():
-                policy, value = self.net(canonical)
-            policy = torch.softmax(policy, dim=1).cpu().numpy()[0]
+                policy_logits, value = self.net(x)
 
-            valids = self.game.getValidMoves(board)
-            policy = policy * valids  # mask 非法
-            sum_p = np.sum(policy)
+            policy = torch.softmax(policy_logits, dim=1).cpu().numpy()[0]
+            valids = self.game.getValidMoves(board).astype(np.float32)
+            policy = policy * valids
+            sum_p = float(np.sum(policy))
             if sum_p > 0:
                 policy /= sum_p
-            else:  # 所有合法位被网络评为0, 均匀分布
-                policy = policy + valids
-                policy /= np.sum(policy)
+            else:
+                legal_sum = float(np.sum(valids))
+                if legal_sum > 0:
+                    policy = valids / legal_sum
+                else:
+                    policy = np.full(self.game.getActionSize(), 1.0 / self.game.getActionSize(), dtype=np.float32)
 
             self.Ps[s] = policy
             self.Vs[s] = valids
             self.Ns[s] = 0
-            return -value.item()
+            return -float(value.item())
 
         valids = self.Vs[s]
-        best_ucb, best_a = -float("inf"), -1
-        # UCB 选子
-        for a in range(self.game.getActionSize()):
+        best_ucb = -float("inf")
+        best_a = -1
+        action_size = self.game.getActionSize()
+
+        for a in range(action_size):
             if valids[a] == 0:
                 continue
-            if (s, a) in self.Qsa:
-                ucb = self.Qsa[(s, a)] + CPUCT * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
-            else:
-                ucb = CPUCT * self.Ps[s][a] * math.sqrt(self.Ns[s] + 1e-8)
-            if ucb > best_ucb:
-                best_ucb, best_a = ucb, a
 
-        a = best_a
-        next_board, _ = self.game.getNextState(board, a)
+            if (s, a) in self.Qsa:
+                ucb = self.Qsa[(s, a)] + self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (1 + self.Nsa[(s, a)])
+            else:
+                ucb = self.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + 1e-8)
+
+            if ucb > best_ucb:
+                best_ucb = ucb
+                best_a = a
+
+        if best_a < 0:
+            return 0.0
+
+        next_board, _ = self.game.getNextState(board, best_a)
         v = self.search(next_board)
 
-        # 反向回传
-        if (s, a) in self.Qsa:
-            self.W[(s, a)] += v
-            self.Nsa[(s, a)] += 1
-            self.Qsa[(s, a)] = self.W[(s, a)] / self.Nsa[(s, a)]
+        if (s, best_a) in self.Qsa:
+            self.W[(s, best_a)] += v
+            self.Nsa[(s, best_a)] += 1
+            self.Qsa[(s, best_a)] = self.W[(s, best_a)] / self.Nsa[(s, best_a)]
         else:
-            self.W[(s, a)] = v
-            self.Nsa[(s, a)] = 1
-            self.Qsa[(s, a)] = v
+            self.W[(s, best_a)] = v
+            self.Nsa[(s, best_a)] = 1
+            self.Qsa[(s, best_a)] = v
+
         self.Ns[s] += 1
         return -v
 
-
-    # ---------- 私有：对根节点注入 Dirichlet 噪声 ----------
-    def _add_dirichlet_noise(self, s):
-        """将噪声混入 self.Ps[s]（只对合法着法混合）"""
+    def _add_dirichlet_noise(self, s) -> None:
         valids = self.Vs[s]
         legal_idx = np.flatnonzero(valids)
         if len(legal_idx) == 0:
-            return  # 理论不会发生
-        noise = np.random.dirichlet([DIRICHLET_ALPHA] * len(legal_idx))
-        # 按照 AlphaZero 公式线性插值
+            return
+
+        noise = np.random.dirichlet([self.dirichlet_alpha] * len(legal_idx))
         self.Ps[s][legal_idx] = (
-            (1 - DIRICHLET_EPS) * self.Ps[s][legal_idx] +
-            DIRICHLET_EPS * noise
+            (1.0 - self.dirichlet_eps) * self.Ps[s][legal_idx]
+            + self.dirichlet_eps * noise
         )
-
-        # print("dir_noise added, sum(Ps)=", self.Ps[s].sum())
-

@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 from network.model import AlphaZeroNet
 from config import MODEL_DIR, DEVICE
+from network.checkpoint import load_checkpoint
 
 
 def latest_ckpt() -> str | None:
@@ -38,7 +39,7 @@ def migrate(old_path: str | None = None) -> None:
         raise FileNotFoundError("未找到旧模型，请提供 checkpoint 路径。")
     print(f"[+] Loading old checkpoint: {old_path}")
 
-    old_sd = torch.load(old_path, map_location=DEVICE)
+    old_sd, _ = load_checkpoint(old_path, map_location=DEVICE)
     new_net = AlphaZeroNet().to(DEVICE)
     new_sd = new_net.state_dict()
 
