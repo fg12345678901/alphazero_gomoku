@@ -10,7 +10,7 @@ search:
   dirichlet_eps: 0.25
   selfplay_temperature: 1.0
   n_temp_moves: 30
-  eval_games: 100
+  eval_games: 50
 
 model:
   channels: 256
@@ -22,7 +22,7 @@ train:
   train_updates: 8000
   learning_rate: 0.0008
   weight_decay: 0.0001
-  selfplay_games: 1000
+  selfplay_games: 500
 
 runtime:
   model_dir: models
