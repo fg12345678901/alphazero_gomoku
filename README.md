@@ -28,6 +28,18 @@ If install fails, you need:
 
 Linux server setup is strongly recommended for Go training.
 
+## Config (YAML)
+
+Game-specific defaults are stored in YAML files:
+
+- `configs/gomoku.yaml`
+- `configs/go.yaml`
+
+These files contain both rule settings (for example board size, history steps)
+and search settings (for example MCTS sims, cpuct, Dirichlet params).
+
+Environment variables still override YAML values when set.
+
 ## Quick Start
 
 Gomoku:
@@ -48,9 +60,11 @@ python main.py evaluate --game go --num-games 60
 
 ## 19x19 Go Training (Linux / DDP)
 
-Recommended environment variables before training:
+Recommended options before training:
 
 ```bash
+# Option A: edit configs/go.yaml (rules + search)
+# Option B: temporary override via env
 export GO_BOARD_SIZE=19
 export GO_KOMI=7.5
 export GO_MCTS_SIMS=800

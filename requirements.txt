@@ -4,3 +4,4 @@ tqdm
 flask
 tensorboard
 matplotlib
+pyyaml

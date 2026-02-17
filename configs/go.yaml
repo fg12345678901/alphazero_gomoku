@@ -1,0 +1,13 @@
+rules:
+  board_size: 9
+  komi: 7.5
+  history_steps: 8
+
+search:
+  mcts_sims: 800
+  cpuct: 1.5
+  dirichlet_alpha: 0.03
+  dirichlet_eps: 0.25
+  selfplay_temperature: 1.0
+  n_temp_moves: 30
+  eval_games: 100

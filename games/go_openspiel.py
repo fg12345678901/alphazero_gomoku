@@ -47,9 +47,7 @@ class GoOpenSpielGame:
             raise ValueError("GoOpenSpielGame only supports 2-player games")
 
         self._obs_shape = tuple(self._engine.observation_tensor_shape())
-        self._probe_state = self._engine.new_initial_state()
-        probe_planes = self._canonical_planes(self._probe_state, player=1)
-        self.input_planes = int(probe_planes.shape[0])
+        self.input_planes = 2 * self.history_steps + 1
 
         action_size = int(self._engine.num_distinct_actions())
         self.pass_action = action_size - 1
@@ -147,20 +145,51 @@ class GoOpenSpielGame:
         return history + player
 
     def _canonical_planes(self, board, player: int) -> np.ndarray:
-        player_id = self._spieler_player_id(player)
-        obs = np.asarray(board.observation_tensor(player_id), dtype=np.float32)
-        planes = self._reshape_observation(obs)
+        size = self.board_size
+        h = self.history_steps
+        planes = np.zeros((2 * h + 1, size, size), dtype=np.float32)
 
-        # Ensure a conventional final "to-play" plane exists for AZ-style input.
-        if planes.shape[0] >= 1:
-            to_play_plane = np.full(
-                (1, self.board_size, self.board_size),
-                fill_value=float(player),
-                dtype=np.float32,
-            )
-            planes = np.concatenate([planes, to_play_plane], axis=0)
+        work = board.clone()
+        move_count = len(board.history())
+        exhausted = False
 
+        for i in range(h):
+            if not exhausted:
+                black, white = self._extract_color_planes(work)
+                if player == 1:
+                    own, opp = black, white
+                elif player == -1:
+                    own, opp = white, black
+                else:
+                    raise ValueError(f"GoOpenSpielGame expects player in {{1, -1}}, got {player}")
+
+                planes[i] = own
+                planes[i + h] = opp
+
+            if exhausted:
+                continue
+
+            # Keep behavior consistent with Gomoku adapter:
+            # include the initial board once, then pad older history with zeros.
+            if i < move_count:
+                # PySpiel bindings on Windows require two positional placeholders.
+                work.undo_action(0, 0)
+            else:
+                exhausted = True
+
+        planes[-1].fill(float(player))
         return planes
+
+    def _extract_color_planes(self, board) -> Tuple[np.ndarray, np.ndarray]:
+        # OpenSpiel Go observation tensor encodes absolute board colors:
+        # [black, white, empty, white_to_play].
+        obs_flat = np.asarray(board.observation_tensor(0), dtype=np.float32)
+        obs = self._reshape_observation(obs_flat)
+        if obs.shape[0] < 2:
+            raise ValueError(f"Unexpected Go observation channels: {obs.shape}")
+        black = obs[0].astype(np.float32, copy=False)
+        white = obs[1].astype(np.float32, copy=False)
+        return black, white
 
     def _reshape_observation(self, obs_flat: np.ndarray) -> np.ndarray:
         obs = obs_flat.reshape(self._obs_shape)
@@ -180,11 +209,3 @@ class GoOpenSpielGame:
             return obs.astype(np.float32, copy=False)
 
         raise ValueError(f"Unexpected observation shape for Go: {obs.shape}")
-
-    @staticmethod
-    def _spieler_player_id(player: int) -> int:
-        if player == 1:
-            return 0
-        if player == -1:
-            return 1
-        raise ValueError(f"GoOpenSpielGame expects player in {{1, -1}}, got {player}")

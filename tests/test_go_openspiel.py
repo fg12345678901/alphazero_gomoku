@@ -17,12 +17,14 @@ HAS_PYSPIEL = bool(go_openspiel is not None and getattr(go_openspiel, "pyspiel",
 @unittest.skipUnless(HAS_PYSPIEL, "OpenSpiel not available")
 class GoOpenSpielAdapterTests(unittest.TestCase):
     def test_go_spec_and_canonical_shape(self):
-        game = GoOpenSpielGame(board_size=9, komi=7.5, history_steps=8)
+        history_steps = 8
+        game = GoOpenSpielGame(board_size=9, komi=7.5, history_steps=history_steps)
         spec = game.getGameSpec()
 
         self.assertEqual(spec.name, "go")
         self.assertEqual(spec.board_size, 9)
         self.assertEqual(spec.action_size, 9 * 9 + 1)
+        self.assertEqual(spec.input_planes, 2 * history_steps + 1)
 
         board = game.getInitBoard()
         player = game.getCurrentPlayer(board)
@@ -30,6 +32,13 @@ class GoOpenSpielAdapterTests(unittest.TestCase):
         self.assertEqual(planes.shape[0], spec.input_planes)
         self.assertEqual(planes.shape[1], 9)
         self.assertEqual(planes.shape[2], 9)
+
+    def test_history_steps_changes_input_planes(self):
+        g8 = GoOpenSpielGame(board_size=9, komi=7.5, history_steps=8)
+        g16 = GoOpenSpielGame(board_size=9, komi=7.5, history_steps=16)
+
+        self.assertEqual(g8.getGameSpec().input_planes, 17)
+        self.assertEqual(g16.getGameSpec().input_planes, 33)
 
     def test_pass_action_and_terminal(self):
         game = GoOpenSpielGame(board_size=9, komi=7.5, history_steps=8)

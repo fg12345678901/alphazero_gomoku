@@ -98,7 +98,10 @@ class Trainer:
             data_dir=self.paths.data_dir,
             buffer_size=BUFFER_SIZE,
             default_batch_size=BATCH_SIZE,
+            expected_input_planes=self.game_spec.input_planes,
+            expected_action_size=self.game_spec.action_size,
         )
+        self._warned_incompatible_models: set[str] = set()
         self.step = 0
         self.writer: SummaryWriter | None = None
 
@@ -316,11 +319,11 @@ class Trainer:
         logger.info("Model saved to %s", fname)
 
     def _latest_model_path(self):
-        files = sorted(glob.glob(os.path.join(self.paths.model_dir, "net_*.pt")))
+        files = self._compatible_model_paths()
         return files[-1] if files else None
 
     def _previous_model_path(self):
-        files = sorted(glob.glob(os.path.join(self.paths.model_dir, "net_*.pt")))
+        files = self._compatible_model_paths()
         return files[-2] if len(files) >= 2 else None
 
     def _load_latest_model(self):
@@ -331,3 +334,18 @@ class Trainer:
             validate_checkpoint_meta(meta, self.game_spec)
             target.load_state_dict(state_dict)
             logger.info("Loaded model %s", path)
+
+    def _compatible_model_paths(self) -> list[str]:
+        files = sorted(glob.glob(os.path.join(self.paths.model_dir, "net_*.pt")))
+        compatible: list[str] = []
+        for path in files:
+            try:
+                _, meta = load_checkpoint(path, map_location="cpu")
+                validate_checkpoint_meta(meta, self.game_spec)
+            except Exception as exc:
+                if path not in self._warned_incompatible_models:
+                    logger.warning("Skip incompatible model %s: %s", path, exc)
+                    self._warned_incompatible_models.add(path)
+                continue
+            compatible.append(path)
+        return compatible

@@ -1,0 +1,13 @@
+rules:
+  board_size: 15
+  n_in_row: 5
+  history_steps: 3
+
+search:
+  mcts_sims: 1700
+  cpuct: 2.5
+  dirichlet_alpha: 0.06
+  dirichlet_eps: 0.25
+  selfplay_temperature: 1.0
+  n_temp_moves: 10
+  eval_games: 100

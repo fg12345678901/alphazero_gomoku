@@ -40,10 +40,18 @@ class SelfPlayWorker:
 
         self.net = build_model_for_game(self.game, device=DEVICE)
         if net_path and os.path.exists(net_path):
-            state_dict, meta = load_checkpoint(net_path, map_location=DEVICE)
-            validate_checkpoint_meta(meta, self.game.getGameSpec())
-            self.net.load_state_dict(state_dict)
-            logger.info("Loaded model %s", net_path)
+            try:
+                state_dict, meta = load_checkpoint(net_path, map_location=DEVICE)
+                validate_checkpoint_meta(meta, self.game.getGameSpec())
+                self.net.load_state_dict(state_dict)
+                logger.info("Loaded model %s", net_path)
+            except ValueError as exc:
+                logger.warning(
+                    "Skip incompatible model %s for game=%s: %s. Use random init.",
+                    net_path,
+                    self.game_name,
+                    exc,
+                )
 
         self.net.eval()
         self.mcts = self._create_mcts()

@@ -5,6 +5,7 @@ import glob
 import os
 import pickle
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
@@ -18,10 +19,14 @@ class ReplayBuffer(Dataset):
         data_dir: str = DATA_DIR,
         buffer_size: int = BUFFER_SIZE,
         default_batch_size: int = BATCH_SIZE,
+        expected_input_planes: int | None = None,
+        expected_action_size: int | None = None,
     ):
         self.data_dir = data_dir
         self.buffer_size = buffer_size
         self.default_batch_size = default_batch_size
+        self.expected_input_planes = expected_input_planes
+        self.expected_action_size = expected_action_size
         self.data = []  # (planes, pi, z)
         self.load_existing()
 
@@ -36,6 +41,9 @@ class ReplayBuffer(Dataset):
         for path in reversed(files):
             with open(path, "rb") as fp:
                 chunk = pickle.load(fp)
+            chunk = self._filter_chunk(chunk)
+            if not chunk:
+                continue
             chunks.append(chunk)
             total += len(chunk)
             if total >= self.buffer_size:
@@ -46,8 +54,31 @@ class ReplayBuffer(Dataset):
 
     def append_from_file(self, file_path: str):
         with open(file_path, "rb") as fp:
-            self.data.extend(pickle.load(fp))
+            self.data.extend(self._filter_chunk(pickle.load(fp)))
         self._trim()
+
+    def _filter_chunk(self, chunk):
+        if self.expected_input_planes is None and self.expected_action_size is None:
+            return chunk
+
+        filtered = []
+        for item in chunk:
+            if not isinstance(item, (tuple, list)) or len(item) != 3:
+                continue
+            planes, pi, _ = item
+            planes_arr = np.asarray(planes)
+            pi_arr = np.asarray(pi)
+
+            if self.expected_input_planes is not None:
+                if planes_arr.ndim < 1 or int(planes_arr.shape[0]) != self.expected_input_planes:
+                    continue
+
+            if self.expected_action_size is not None:
+                if int(pi_arr.size) != self.expected_action_size:
+                    continue
+
+            filtered.append(item)
+        return filtered
 
     def _trim(self):
         if len(self.data) > self.buffer_size:
