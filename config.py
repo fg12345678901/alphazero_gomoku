@@ -114,7 +114,6 @@ class TrainConfig:
     train_updates: int
     learning_rate: float
     weight_decay: float
-    eval_threshold: float
     selfplay_games: int
 
 
@@ -201,7 +200,6 @@ def _load_game_yaml(game_name: str, file_path: Path) -> GameConfig:
         train_updates=_require_int(train, "train_updates", file_path),
         learning_rate=_require_float(train, "learning_rate", file_path),
         weight_decay=_require_float(train, "weight_decay", file_path),
-        eval_threshold=_require_float(train, "eval_threshold", file_path),
         selfplay_games=_require_int(train, "selfplay_games", file_path),
     )
     runtime_cfg = RuntimeConfig(
@@ -319,10 +317,6 @@ def _apply_train_env_overrides(game_name: str, train: TrainConfig) -> TrainConfi
         train_updates=_env_int(f"{prefix}_TRAIN_UPDATES", _env_int("AZ_TRAIN_UPDATES", train.train_updates)),
         learning_rate=_env_float(f"{prefix}_LEARNING_RATE", _env_float("AZ_LEARNING_RATE", train.learning_rate)),
         weight_decay=_env_float(f"{prefix}_WEIGHT_DECAY", _env_float("AZ_WEIGHT_DECAY", train.weight_decay)),
-        eval_threshold=_env_float(
-            f"{prefix}_EVAL_THRESHOLD",
-            _env_float("AZ_EVAL_THRESHOLD", train.eval_threshold),
-        ),
         selfplay_games=_env_int(
             f"{prefix}_SELFPLAY_GAMES",
             _env_int("AZ_SELFPLAY_GAMES", train.selfplay_games),
@@ -510,7 +504,6 @@ BATCH_SIZE = _ACTIVE_TRAIN.batch_size
 TRAIN_UPDATES = _ACTIVE_TRAIN.train_updates
 LEARNING_RATE = _ACTIVE_TRAIN.learning_rate
 WEIGHT_DECAY = _ACTIVE_TRAIN.weight_decay
-EVAL_THRESHOLD = _ACTIVE_TRAIN.eval_threshold  # kept for compatibility
 SELFPLAY_GAMES = _ACTIVE_TRAIN.selfplay_games
 
 DEVICE = _resolve_device(_ACTIVE_SYSTEM.device)
