@@ -133,6 +133,12 @@ class LoggingConfig:
 
 
 @dataclass(frozen=True)
+class SystemConfig:
+    default_game: str
+    device: str
+
+
+@dataclass(frozen=True)
 class GameConfig:
     rule: RuleConfig
     search: SearchConfig
@@ -143,6 +149,8 @@ class GameConfig:
 
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
+SYSTEM_CONFIG_PATH = CONFIG_DIR / "system.yaml"
+_NON_GAME_CONFIG_NAMES = {"system"}
 
 
 def _load_game_yaml(game_name: str, file_path: Path) -> GameConfig:
@@ -217,6 +225,22 @@ def _load_game_yaml(game_name: str, file_path: Path) -> GameConfig:
     )
 
 
+def _load_system_yaml(file_path: Path) -> SystemConfig:
+    if not file_path.exists():
+        raise FileNotFoundError(f"System config file not found: {file_path}")
+
+    with file_path.open("r", encoding="utf-8") as fp:
+        payload = yaml.safe_load(fp) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"{file_path} must contain a mapping")
+
+    system = _require_dict(payload, "system", file_path)
+    return SystemConfig(
+        default_game=_normalize_game_name(_require_str(system, "default_game", file_path)),
+        device=_require_str(system, "device", file_path),
+    )
+
+
 def _load_all_game_configs() -> dict[str, GameConfig]:
     if not CONFIG_DIR.exists():
         raise FileNotFoundError(f"Config directory does not exist: {CONFIG_DIR}")
@@ -224,7 +248,7 @@ def _load_all_game_configs() -> dict[str, GameConfig]:
     configs: dict[str, GameConfig] = {}
     for path in sorted(CONFIG_DIR.glob("*.yaml")):
         game_name = path.stem.strip().lower()
-        if not game_name:
+        if not game_name or game_name in _NON_GAME_CONFIG_NAMES:
             continue
         configs[game_name] = _load_game_yaml(game_name, path)
 
@@ -330,6 +354,54 @@ def _apply_logging_env_overrides(game_name: str, logging_cfg: LoggingConfig) -> 
     )
 
 
+def _apply_system_env_overrides(system_cfg: SystemConfig) -> SystemConfig:
+    return SystemConfig(
+        default_game=_normalize_game_name(
+            _env_str("GAME_NAME", _env_str("AZ_DEFAULT_GAME", system_cfg.default_game))
+        ),
+        device=_env_str("AZ_DEVICE", system_cfg.device),
+    )
+
+
+def _resolve_device(device_cfg: str) -> str:
+    normalized = (device_cfg or "").strip().lower()
+    if not normalized:
+        raise ValueError("Device config must be non-empty")
+
+    if normalized == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if normalized == "cpu":
+        return "cpu"
+    if normalized == "mps":
+        mps_available = bool(getattr(torch.backends, "mps", None)) and torch.backends.mps.is_available()
+        if not mps_available:
+            raise ValueError("Configured device='mps' but torch MPS backend is unavailable")
+        return "mps"
+    if normalized == "cuda":
+        if not torch.cuda.is_available():
+            raise ValueError("Configured device='cuda' but CUDA is unavailable")
+        return "cuda"
+    if normalized.startswith("cuda:"):
+        if not torch.cuda.is_available():
+            raise ValueError(f"Configured device='{normalized}' but CUDA is unavailable")
+        index_text = normalized.split(":", 1)[1]
+        try:
+            index = int(index_text)
+        except ValueError as exc:
+            raise ValueError(f"Invalid CUDA device index in '{normalized}'") from exc
+        if index < 0:
+            raise ValueError(f"Invalid CUDA device index in '{normalized}'")
+        if index >= torch.cuda.device_count():
+            raise ValueError(
+                f"Configured device='{normalized}' but only {torch.cuda.device_count()} CUDA devices are visible"
+            )
+        return normalized
+
+    raise ValueError("Unsupported device config. Use auto/cpu/cuda/cuda:<index>/mps")
+
+
+_RAW_SYSTEM_CONFIG = _load_system_yaml(SYSTEM_CONFIG_PATH)
+_SYSTEM_CONFIG = _apply_system_env_overrides(_RAW_SYSTEM_CONFIG)
 _RAW_GAME_CONFIGS = _load_all_game_configs()
 _RULE_CONFIGS: dict[str, RuleConfig] = {
     game: _apply_rule_env_overrides(game, cfg.rule)
@@ -361,8 +433,10 @@ def supported_games() -> list[str]:
     return sorted(_RULE_CONFIGS.keys())
 
 
-_DEFAULT_GAME_NAME = "gomoku" if "gomoku" in _RULE_CONFIGS else supported_games()[0]
-GAME_NAME = _normalize_game_name(os.getenv("GAME_NAME", _DEFAULT_GAME_NAME))
+_DEFAULT_GAME_NAME = _normalize_game_name(_SYSTEM_CONFIG.default_game)
+if not _DEFAULT_GAME_NAME:
+    _DEFAULT_GAME_NAME = "gomoku" if "gomoku" in _RULE_CONFIGS else supported_games()[0]
+GAME_NAME = _DEFAULT_GAME_NAME
 if GAME_NAME not in _RULE_CONFIGS:
     options = ", ".join(supported_games())
     raise ValueError(f"Unsupported GAME_NAME='{GAME_NAME}'. Available games: {options}")
@@ -416,12 +490,17 @@ def get_logging_config(game_name: str | None = None) -> LoggingConfig:
     return _LOGGING_CONFIGS[normalized]
 
 
+def get_system_config() -> SystemConfig:
+    return _SYSTEM_CONFIG
+
+
 _ACTIVE_RULE = get_rule_config(GAME_NAME)
 _ACTIVE_SEARCH = get_search_config(GAME_NAME)
 _ACTIVE_MODEL = get_model_config(GAME_NAME)
 _ACTIVE_TRAIN = get_train_config(GAME_NAME)
 _ACTIVE_RUNTIME = get_runtime_config(GAME_NAME)
 _ACTIVE_LOGGING = get_logging_config(GAME_NAME)
+_ACTIVE_SYSTEM = get_system_config()
 
 CHANNELS = _ACTIVE_MODEL.channels
 NUM_RES = _ACTIVE_MODEL.num_res
@@ -434,7 +513,7 @@ WEIGHT_DECAY = _ACTIVE_TRAIN.weight_decay
 EVAL_THRESHOLD = _ACTIVE_TRAIN.eval_threshold  # kept for compatibility
 SELFPLAY_GAMES = _ACTIVE_TRAIN.selfplay_games
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = _resolve_device(_ACTIVE_SYSTEM.device)
 MODEL_DIR = _ACTIVE_RUNTIME.model_dir
 DATA_DIR = _ACTIVE_RUNTIME.data_dir
 

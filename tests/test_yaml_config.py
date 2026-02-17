@@ -7,11 +7,14 @@ import yaml
 
 from config import (
     CONFIG_DIR,
+    DEVICE,
+    GAME_NAME,
     get_logging_config,
     get_model_config,
     get_rule_config,
     get_runtime_config,
     get_search_config,
+    get_system_config,
     get_train_config,
 )
 
@@ -20,8 +23,10 @@ class YamlConfigTests(unittest.TestCase):
     def test_game_yaml_files_exist(self):
         gomoku_path = CONFIG_DIR / "gomoku.yaml"
         go_path = CONFIG_DIR / "go.yaml"
+        system_path = CONFIG_DIR / "system.yaml"
         self.assertTrue(gomoku_path.is_file())
         self.assertTrue(go_path.is_file())
+        self.assertTrue(system_path.is_file())
 
     def test_yaml_shape_and_runtime_config(self):
         for game_name in ("gomoku", "go"):
@@ -59,6 +64,20 @@ class YamlConfigTests(unittest.TestCase):
             self.assertTrue(runtime.tb_dir)
             self.assertTrue(logging_cfg.level)
             self.assertTrue(logging_cfg.name)
+
+    def test_system_yaml_shape_and_runtime_config(self):
+        system_path = CONFIG_DIR / "system.yaml"
+        with system_path.open("r", encoding="utf-8") as fp:
+            payload = yaml.safe_load(fp)
+        self.assertIn("system", payload)
+        self.assertIn("default_game", payload["system"])
+        self.assertIn("device", payload["system"])
+
+        system_cfg = get_system_config()
+        self.assertTrue(system_cfg.default_game)
+        self.assertTrue(system_cfg.device)
+        self.assertEqual(system_cfg.default_game, GAME_NAME)
+        self.assertTrue(DEVICE)
 
 
 if __name__ == "__main__":

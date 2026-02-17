@@ -1,0 +1,3 @@
+system:
+  default_game: gomoku
+  device: auto
