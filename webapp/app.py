@@ -51,12 +51,21 @@ def _ensure_paths(paths: RuntimePaths) -> None:
 def _latest_model_for_game(game_name: str) -> str | None:
     paths = resolve_runtime_paths(game_name)
     files = sorted(glob.glob(os.path.join(paths.model_dir, "net_*.pt")))
-    return files[-1] if files else None
+    if not files:
+        return None
+
+    if game_name == ACTIVE_GAME_NAME and GAME is not None:
+        compatible = [f for f in files if _is_checkpoint_compatible(f)]
+        return compatible[-1] if compatible else None
+
+    return files[-1]
 
 
 def _list_models_for_game(game_name: str) -> list[str]:
     paths = resolve_runtime_paths(game_name)
     files = sorted(glob.glob(os.path.join(paths.model_dir, "net_*.pt")))
+    if game_name == ACTIVE_GAME_NAME and GAME is not None:
+        files = [f for f in files if _is_checkpoint_compatible(f)]
     return [os.path.basename(f) for f in files]
 
 
@@ -109,31 +118,19 @@ def _columns_for_state(state) -> list[str]:
 
 
 def _go_action_to_xy(state, action: int, size: int) -> tuple[int, int] | None:
-    try:
-        coord = str(state.action_to_string(state.current_player(), int(action))).split()[-1].upper()
-    except Exception:
+    action = int(action)
+    if action < 0 or action >= size * size:
         return None
 
-    if coord == "PASS":
-        return None
-
-    col = coord[0]
-    row = int(coord[1:])
-    cols = _go_columns_from_state(state, size)
-    if col not in cols:
-        return None
-
-    x = size - row
-    y = cols.index(col)
-    if 0 <= x < size and 0 <= y < size:
-        return (x, y)
-    return None
+    row_from_bottom = (action // size) + 1
+    col = action % size
+    x = size - row_from_bottom
+    y = col
+    return (x, y)
 
 
 def _go_xy_to_action(state, x: int, y: int, size: int) -> int:
-    cols = _go_columns_from_state(state, size)
-    coord = f"{cols[y].lower()}{size - x}"
-    return int(state.string_to_action(coord))
+    return (size - 1 - int(x)) * size + int(y)
 
 
 def _board_matrix(state) -> np.ndarray:
@@ -276,6 +273,15 @@ def _load_model(path: str | None) -> bool:
 
         _LOADED_MODEL_PATH = resolved
         CURRENT_MODEL_PATH = resolved
+    return True
+
+
+def _is_checkpoint_compatible(path: str) -> bool:
+    try:
+        _, meta = load_checkpoint(path, map_location="cpu")
+        validate_checkpoint_meta(meta, GAME.getGameSpec())
+    except Exception:
+        return False
     return True
 
 
@@ -449,7 +455,11 @@ def start_game():
     if requested_model == "random":
         _reset_random_network()
     elif requested_model:
-        if not _load_model(requested_model):
+        try:
+            loaded = _load_model(requested_model)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not loaded:
             return jsonify({"error": f"model not found: {requested_model}"}), 400
 
     _reset_position(mode=mode, human_player=human_player, sims=sims)

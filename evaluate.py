@@ -113,13 +113,16 @@ def _parse_move_input(game_name: str, board, raw: str, size: int, action_size: i
 
         token = text.replace(" ", "")
         if len(token) >= 2 and token[0].isalpha() and token[1:].isdigit():
-            coord = token[0].lower() + token[1:]
-            try:
-                action = int(board.string_to_action(coord))
-                if 0 <= action < action_size:
-                    return action
-            except Exception:
+            cols = _columns_for_game(game_name, board, size)
+            col = token[0].upper()
+            if col not in cols:
                 return None
+            row = int(token[1:])
+            if not (1 <= row <= size):
+                return None
+            action = (row - 1) * size + cols.index(col)
+            if 0 <= action < action_size:
+                return action
         return None
 
     # Gomoku: support "row col" / "row,col" and algebraic (A1).
