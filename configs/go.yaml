@@ -1,10 +1,10 @@
 rules:
-  board_size: 9
+  board_size: 19
   komi: 7.5
   history_steps: 8
 
 search:
-  mcts_sims: 800
+  mcts_sims: 300
   cpuct: 1.5
   dirichlet_alpha: 0.03
   dirichlet_eps: 0.25
@@ -23,7 +23,7 @@ train:
   learning_rate: 0.0008
   weight_decay: 0.0001
   eval_threshold: 0.55
-  selfplay_games: 100
+  selfplay_games: 1000
 
 runtime:
   model_dir: models
