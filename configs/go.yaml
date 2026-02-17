@@ -4,7 +4,7 @@ rules:
   history_steps: 8
 
 search:
-  mcts_sims: 300
+  mcts_sims: 100
   cpuct: 1.5
   dirichlet_alpha: 0.03
   dirichlet_eps: 0.25
