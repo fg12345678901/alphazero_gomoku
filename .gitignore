@@ -1,0 +1,24 @@
+# Python bytecode / caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Test / type checker caches
+.pytest_cache/
+.mypy_cache/
+
+# Runtime artifacts
+data/
+logs/
+tb/
+arena_tmp/
+
+# Model checkpoints (keep placeholder docs if any)
+models/net_*.pt
+models/**/net_*.pt
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
