@@ -1,269 +1,591 @@
-﻿import os
-import sys
-import threading
+﻿from __future__ import annotations
 
-from flask import Flask, render_template, request, jsonify
-import numpy as np
-import torch
 import glob
+import os
+import re
+import threading
 from copy import deepcopy
 
-# Ensure local modules take precedence over any installed packages
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import numpy as np
+import torch
+from flask import Flask, jsonify, render_template, request
 
-from gomoku.game import GomokuGame
+from config import DEVICE, GAME_NAME, get_search_config
+from games.registry import available_games, create_game, normalize_game_name
 from mcts.mcts import MCTS
-from config import DEVICE, MCTS_SIMS, get_rule_config
 from network.checkpoint import build_model_for_game, load_checkpoint, validate_checkpoint_meta
+from runtime_paths import RuntimePaths, resolve_runtime_paths
+
 
 app = Flask(__name__)
+MODEL_LOCK = threading.Lock()
 
-# ---------------- 宸ュ叿鍑芥暟 ----------------
-def latest_model():
-    files = glob.glob(os.path.join('models', 'net_*.pt'))
-    if not files:
-        return None
-    files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
-    return files[-1]
+ACTIVE_GAME_NAME = normalize_game_name(GAME_NAME)
+GAME = None
+NET = None
+PATHS: RuntimePaths | None = None
 
-def list_models():
-    files = glob.glob(os.path.join('models', 'net_*.pt'))
-    files.sort(key=lambda f: int(os.path.splitext(os.path.basename(f))[0].split('_')[1]))
+CURRENT_MODEL_PATH: str | None = None
+_LOADED_MODEL_PATH: str | None = None
+
+BOARD = None
+STATE_HISTORY = []
+ACTION_HISTORY: list[int] = []
+MOVE_LABELS: list[str] = []
+VALUE_CURVE: list[float] = []
+POLICY_BOARD: list[list[float]] = []
+PASS_PROB = 0.0
+
+MODE = "human_ai"  # human_ai, human_human, ai_ai
+HUMAN_PLAYER = 1
+MCTS_OBJ: MCTS | None = None
+
+
+def _ensure_paths(paths: RuntimePaths) -> None:
+    os.makedirs(paths.model_dir, exist_ok=True)
+    os.makedirs(paths.data_dir, exist_ok=True)
+    os.makedirs(paths.log_dir, exist_ok=True)
+    os.makedirs(paths.tb_dir, exist_ok=True)
+
+
+def _latest_model_for_game(game_name: str) -> str | None:
+    paths = resolve_runtime_paths(game_name)
+    files = sorted(glob.glob(os.path.join(paths.model_dir, "net_*.pt")))
+    return files[-1] if files else None
+
+
+def _list_models_for_game(game_name: str) -> list[str]:
+    paths = resolve_runtime_paths(game_name)
+    files = sorted(glob.glob(os.path.join(paths.model_dir, "net_*.pt")))
     return [os.path.basename(f) for f in files]
 
 
-def _resolve_model_path(path):
+def _resolve_model_path(game_name: str, path: str | None) -> str | None:
     if not path:
         return None
     if os.path.basename(path) == path:
-        return os.path.join('models', path)
+        return os.path.join(resolve_runtime_paths(game_name).model_dir, path)
     return path
 
 
-def load_model(path):
+def _is_go() -> bool:
+    return ACTIVE_GAME_NAME == "go"
+
+
+def _clone_state(state):
+    if hasattr(state, "copy"):
+        return state.copy()
+    if hasattr(state, "clone"):
+        return state.clone()
+    return deepcopy(state)
+
+
+def _go_columns_from_state(state, size: int) -> list[str]:
+    cols: list[str] = []
+    for action in range(size):
+        try:
+            coord = str(state.action_to_string(state.current_player(), int(action))).split()[-1]
+        except Exception:
+            cols = []
+            break
+        if not coord:
+            cols = []
+            break
+        cols.append(coord[0].upper())
+
+    if len(cols) == size and len(set(cols)) == size:
+        return cols
+
+    # Fallback: Go coordinates conventionally skip I.
+    fallback = [c for c in "ABCDEFGHJKLMNOPQRSTUVWXYZ"]
+    return fallback[:size]
+
+
+def _columns_for_state(state) -> list[str]:
+    size = GAME.getGameSpec().board_size
+    if _is_go():
+        return _go_columns_from_state(state, size)
+    return list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:size])
+
+
+def _go_action_to_xy(state, action: int, size: int) -> tuple[int, int] | None:
+    try:
+        coord = str(state.action_to_string(state.current_player(), int(action))).split()[-1].upper()
+    except Exception:
+        return None
+
+    if coord == "PASS":
+        return None
+
+    col = coord[0]
+    row = int(coord[1:])
+    cols = _go_columns_from_state(state, size)
+    if col not in cols:
+        return None
+
+    x = size - row
+    y = cols.index(col)
+    if 0 <= x < size and 0 <= y < size:
+        return (x, y)
+    return None
+
+
+def _go_xy_to_action(state, x: int, y: int, size: int) -> int:
+    cols = _go_columns_from_state(state, size)
+    coord = f"{cols[y].lower()}{size - x}"
+    return int(state.string_to_action(coord))
+
+
+def _board_matrix(state) -> np.ndarray:
+    size = GAME.getGameSpec().board_size
+    if not _is_go():
+        return np.asarray(state.board, dtype=np.int8)
+
+    rows: list[list[int]] = []
+    line_re = re.compile(r"^\s*\d+\s+([+XOxo.]+)\s*$")
+    char_map = {"X": 1, "x": 1, "O": -1, "o": -1, "+": 0, ".": 0}
+
+    for line in str(state).splitlines():
+        matched = line_re.match(line)
+        if not matched:
+            continue
+        row = [char_map.get(ch, 0) for ch in matched.group(1)]
+        rows.append(row)
+
+    if len(rows) != size or any(len(r) != size for r in rows):
+        return np.zeros((size, size), dtype=np.int8)
+
+    return np.asarray(rows, dtype=np.int8)
+
+
+def _policy_to_payload(policy_vec: np.ndarray, state) -> tuple[list[list[float]], float]:
+    size = GAME.getGameSpec().board_size
+    board_probs = np.zeros((size, size), dtype=np.float32)
+    pass_prob = 0.0
+
+    if not _is_go():
+        board_probs = np.asarray(policy_vec[: size * size], dtype=np.float32).reshape(size, size)
+        return board_probs.tolist(), pass_prob
+
+    for action in range(min(size * size, policy_vec.shape[0])):
+        pos = _go_action_to_xy(state, action, size)
+        if pos is None:
+            continue
+        x, y = pos
+        board_probs[x, y] = float(policy_vec[action])
+
+    if policy_vec.shape[0] > size * size:
+        pass_prob = float(policy_vec[size * size])
+
+    return board_probs.tolist(), pass_prob
+
+
+def _action_label(state, action: int) -> str:
+    size = GAME.getGameSpec().board_size
+    if _is_go():
+        try:
+            coord = str(state.action_to_string(state.current_player(), int(action))).split()[-1]
+            return coord.upper()
+        except Exception:
+            if action == size * size:
+                return "PASS"
+            return str(action)
+
+    row, col = divmod(int(action), size)
+    cols = _columns_for_state(state)
+    return f"{cols[col]}{row + 1}"
+
+
+def _action_from_xy(state, x: int, y: int) -> int:
+    size = GAME.getGameSpec().board_size
+    if _is_go():
+        return _go_xy_to_action(state, x, y, size)
+    return x * size + y
+
+
+def _winner_from_board(state) -> int | None:
+    result_for_black = float(GAME.getGameEnded(state, 1))
+    if result_for_black == 0:
+        return None
+    if abs(result_for_black) < 1e-3:
+        return 0
+    return 1 if result_for_black > 0 else -1
+
+
+def _evaluate_state(state) -> tuple[np.ndarray, float]:
+    current_player = GAME.getCurrentPlayer(state)
+    planes = GAME.getCanonicalForm(state, current_player)
+    x = torch.tensor(planes, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+
+    with torch.no_grad():
+        policy_logits, value = NET(x)
+
+    policy = torch.softmax(policy_logits, dim=1).cpu().numpy()[0]
+    valids = GAME.getValidMoves(state).astype(np.float32)
+    policy = policy * valids
+    s = float(np.sum(policy))
+    if s > 0:
+        policy /= s
+    else:
+        legal_sum = float(np.sum(valids))
+        if legal_sum > 0:
+            policy = valids / legal_sum
+        else:
+            policy = np.full(GAME.getActionSize(), 1.0 / GAME.getActionSize(), dtype=np.float32)
+
+    return policy.astype(np.float32), float(value.item())
+
+
+def _create_mcts(sims: int | None = None) -> MCTS:
+    cfg = get_search_config(ACTIVE_GAME_NAME)
+    use_sims = int(sims) if sims is not None and int(sims) > 0 else cfg.mcts_sims
+    return MCTS(
+        GAME,
+        NET,
+        sims=use_sims,
+        cpuct=cfg.cpuct,
+        dirichlet_alpha=cfg.dirichlet_alpha,
+        dirichlet_eps=cfg.dirichlet_eps,
+    )
+
+
+def _reset_random_network() -> None:
+    global NET, CURRENT_MODEL_PATH, _LOADED_MODEL_PATH
+    NET = build_model_for_game(GAME, device=DEVICE)
+    NET.eval()
+    CURRENT_MODEL_PATH = None
+    _LOADED_MODEL_PATH = None
+
+
+def _load_model(path: str | None) -> bool:
     global CURRENT_MODEL_PATH, _LOADED_MODEL_PATH
-    resolved = _resolve_model_path(path)
+
+    resolved = _resolve_model_path(ACTIVE_GAME_NAME, path)
     if resolved is None or not os.path.isfile(resolved):
         return False
+
     with MODEL_LOCK:
         if _LOADED_MODEL_PATH == resolved:
             CURRENT_MODEL_PATH = resolved
             return True
+
         state_dict, meta = load_checkpoint(resolved, map_location=DEVICE)
         validate_checkpoint_meta(meta, GAME.getGameSpec())
         NET.load_state_dict(state_dict)
         NET.eval()
+
         _LOADED_MODEL_PATH = resolved
         CURRENT_MODEL_PATH = resolved
     return True
 
-def evaluate(net, game, board):
-    current_player = game.getCurrentPlayer(board)
-    planes = game.getCanonicalForm(board, current_player)
-    x = torch.tensor(planes, dtype=torch.float32, device=DEVICE).unsqueeze(0)
-    with torch.no_grad():
-        policy, value = net(x)
-    policy = torch.softmax(policy, dim=1).cpu().numpy()[0]
-    valids = game.getValidMoves(board)
-    policy = policy * valids
-    s = policy.sum()
-    if s > 0:
-        policy /= s
+
+def _activate_game(game_name: str) -> None:
+    global ACTIVE_GAME_NAME, GAME, NET, PATHS, CURRENT_MODEL_PATH, _LOADED_MODEL_PATH
+
+    normalized = normalize_game_name(game_name)
+    if GAME is not None and ACTIVE_GAME_NAME == normalized:
+        return
+
+    GAME = create_game(normalized)
+    NET = build_model_for_game(GAME, device=DEVICE)
+    NET.eval()
+
+    ACTIVE_GAME_NAME = normalized
+    PATHS = resolve_runtime_paths(ACTIVE_GAME_NAME)
+    _ensure_paths(PATHS)
+
+    CURRENT_MODEL_PATH = _latest_model_for_game(ACTIVE_GAME_NAME)
+    _LOADED_MODEL_PATH = None
+
+
+def _recompute_policy(append_curve: bool) -> None:
+    global POLICY_BOARD, PASS_PROB, VALUE_CURVE
+
+    policy_vec, value = _evaluate_state(BOARD)
+    POLICY_BOARD, PASS_PROB = _policy_to_payload(policy_vec, BOARD)
+
+    signed_value = value * GAME.getCurrentPlayer(BOARD)
+    if append_curve:
+        VALUE_CURVE.append(float(signed_value))
     else:
-        policy = valids / valids.sum()
-    return policy.tolist(), float(value.item())
+        if VALUE_CURVE:
+            VALUE_CURVE[-1] = float(signed_value)
+        else:
+            VALUE_CURVE.append(float(signed_value))
 
-# ---------------- 鍏ㄥ眬瀵瑰眬鐘舵€?----------------
 
-_RULES = get_rule_config('gomoku')
-GAME = GomokuGame(size=_RULES.board_size, n_in_row=_RULES.n_in_row or 5, history_steps=_RULES.history_steps)
-NET = build_model_for_game(GAME, device=DEVICE)
-MODEL_LOCK = threading.Lock()
-CURRENT_MODEL_PATH = latest_model()
-_LOADED_MODEL_PATH = None
-NET.eval()
+def _apply_action(action: int) -> None:
+    global BOARD
 
-BOARD = GAME.getInitBoard()
-MCTS_OBJ = MCTS(GAME, NET)
-HISTORY = []
-VALUE_CURVE = []
-MODE = 'human_ai'  # human_ai, human_human, ai_ai
-HUMAN_PLAYER = 1   # 1 榛? -1 鐧?
-POLICY = []        # 褰撳墠灞€闈㈢殑缃戠粶钀藉瓙姒傜巼
+    before = BOARD
+    label = _action_label(before, action)
+    next_board, _ = GAME.getNextState(before, int(action))
 
-# ---------------- 璺敱 ----------------
-@app.route('/')
-def index():
-    return render_template('index.html', size=GAME.size)
+    BOARD = next_board
+    STATE_HISTORY.append(next_board)
+    ACTION_HISTORY.append(int(action))
+    MOVE_LABELS.append(label)
 
-@app.route('/models')
-def models_list():
-    current_name = os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None
-    return jsonify(models=list_models(), current=current_name)
 
-@app.route('/start', methods=['POST'])
-def start_game():
-    global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, MODE, HUMAN_PLAYER, POLICY
-    data = request.get_json(force=True)
-    MODE = data.get('mode', 'human_ai')
-    HUMAN_PLAYER = int(data.get('human_player', 1))
-    sims = int(data.get('mcts_sims', MCTS_SIMS))
-    requested_model = data.get('model')
-    if requested_model in (None, '', 'latest'):
-        requested_model = latest_model()
-    if requested_model:
-        load_model(requested_model)
-    BOARD = GAME.getInitBoard()
-    MCTS_OBJ = MCTS(GAME, NET, sims)
-    HISTORY = []
-    VALUE_CURVE = []
-    policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value * GAME.getCurrentPlayer(BOARD))
-    POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
-    if MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
-        ai_move()
-    return jsonify(success=True,
-                   board=BOARD.board.tolist(),
-                   current_player=int(GAME.getCurrentPlayer(BOARD)),
-                   history=HISTORY,
-                   policy=POLICY,
-                   value_curve=VALUE_CURVE,
-                   model=os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None)
+def _undo_once() -> bool:
+    global BOARD
 
-@app.route('/state')
-def get_state():
-    winner = BOARD.get_winner()
-    return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(GAME.getCurrentPlayer(BOARD)),
-                   history=HISTORY,
-                   value_curve=VALUE_CURVE,
-                   policy=POLICY,
-                   model=os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else None,
-                   winner=winner)
+    if not ACTION_HISTORY or len(STATE_HISTORY) <= 1:
+        return False
 
-# 瀵瑰綋鍓嶆鐩樿繘琛岀綉缁滃墠鍚戯紝杩斿洖鍏堥獙姒傜巼
-@app.route('/prior', methods=['POST'])
-def calc_prior():
-    data = request.get_json(force=True)
-    x = int(data['x'])
-    y = int(data['y'])
-    if BOARD.board[x, y] != 0:
-        return jsonify(error='invalid'), 400
-    move = BOARD.coord_to_move(x, y)
-    tmp_board, _ = GAME.getNextState(BOARD, move)
-    policy, _ = evaluate(NET, GAME, tmp_board)
-    return jsonify(policy=np.array(policy).reshape(GAME.size, GAME.size).tolist())
-
-# 杈呭姪鍑芥暟锛欰I 钀藉瓙
-def ai_move():
-    global BOARD, MCTS_OBJ, HISTORY, VALUE_CURVE, POLICY
-    pi = MCTS_OBJ.get_action_probs(BOARD, temp=0)
-    move = int(np.argmax(pi))
-    BOARD, _ = GAME.getNextState(BOARD, move)
-    HISTORY.append(move)
-    policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value * GAME.getCurrentPlayer(BOARD))
-    POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
-
-@app.route('/ai_step', methods=['POST'])
-def ai_step():
-    """鍦?AI 瀵规垬妯″紡涓嬫墽琛屼竴姝?AI 琛屾"""
-    global BOARD, HISTORY, VALUE_CURVE, POLICY
-    if MODE != 'ai_ai':
-        return jsonify(error='invalid mode'), 400
-    if BOARD.get_winner() is not None:
-        return jsonify(error='game over'), 400
-    ai_move()
-    winner = BOARD.get_winner()
-    return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(GAME.getCurrentPlayer(BOARD)),
-                   history=HISTORY,
-                   value_curve=VALUE_CURVE,
-                   policy=POLICY,
-                   winner=winner)
-
-@app.route('/move', methods=['POST'])
-def make_move():
-    global BOARD, HISTORY, VALUE_CURVE, POLICY
-    data = request.get_json(force=True)
-    x = int(data['x'])
-    y = int(data['y'])
-    if BOARD.board[x, y] != 0:
-        return jsonify(error='invalid'), 400
-    if MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
-        return jsonify(error='not your turn'), 400
-    move = BOARD.coord_to_move(x, y)
-    BOARD, _ = GAME.getNextState(BOARD, move)
-    HISTORY.append(move)
-    policy, value = evaluate(NET, GAME, BOARD)
-    VALUE_CURVE.append(value * GAME.getCurrentPlayer(BOARD))
-    POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
-
-    winner = BOARD.get_winner()
-    # 濡傛灉杞埌AI
-    if winner is None and MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
-        ai_move()
-        winner = BOARD.get_winner()
-
-    return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(GAME.getCurrentPlayer(BOARD)),
-                   history=HISTORY,
-                   value_curve=VALUE_CURVE,
-                   policy=POLICY,
-                   winner=winner)
-
-@app.route('/undo', methods=['POST'])
-def undo():
-    global BOARD, HISTORY, VALUE_CURVE, POLICY, MCTS_OBJ
-    if not HISTORY:
-        return jsonify(error='no moves'), 400
-
-    # 鎾ら攢涓€姝?
-    HISTORY.pop()
-    BOARD.undo_move()
+    ACTION_HISTORY.pop()
+    MOVE_LABELS.pop()
+    STATE_HISTORY.pop()
     if VALUE_CURVE:
         VALUE_CURVE.pop()
 
-    # 濡傛灉鏄汉鏈烘ā寮忓苟涓旇疆鍒?AI锛屼笅閫€涓€姝ヤ互鍥炲埌鐜╁鎵嬪姩鍐崇瓥鍓嶇殑灞€闈?
-    if MODE != 'human_human' and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER and HISTORY:
-        HISTORY.pop()
-        BOARD.undo_move()
-        if VALUE_CURVE:
-            VALUE_CURVE.pop()
+    BOARD = STATE_HISTORY[-1]
+    return True
 
-    # 閲嶆柊璇勪及褰撳墠灞€闈?
-    MCTS_OBJ = MCTS(GAME, NET, getattr(MCTS_OBJ, 'sims', MCTS_SIMS))
-    policy, value = evaluate(NET, GAME, BOARD)
-    value = value * GAME.getCurrentPlayer(BOARD)
-    if VALUE_CURVE:
-        VALUE_CURVE[-1] = value
-    else:
-        VALUE_CURVE.append(value)
 
-    POLICY = np.array(policy).reshape(GAME.size, GAME.size).tolist()
-    winner = BOARD.get_winner()
-    return jsonify(board=BOARD.board.tolist(),
-                   current_player=int(GAME.getCurrentPlayer(BOARD)),
-                   history=HISTORY,
-                   value_curve=VALUE_CURVE,
-                   policy=POLICY,
-                   winner=winner)
+def _ai_move() -> None:
+    if _winner_from_board(BOARD) is not None:
+        return
 
-# 浣跨敤 MCTS 瀵瑰綋鍓嶅眬闈㈣繘琛屾繁鍏ユ悳绱紝杩斿洖鎼滅储姒傜巼鍜屼及鍊?
-@app.route('/analyze', methods=['POST'])
-def analyze():
+    pi = MCTS_OBJ.get_action_probs(BOARD, temp=0, add_noise=False)
+    action = int(np.argmax(pi))
+
+    valids = GAME.getValidMoves(BOARD)
+    if action < 0 or action >= GAME.getActionSize() or int(valids[action]) == 0:
+        legal = np.flatnonzero(valids)
+        if len(legal) == 0:
+            return
+        action = int(np.random.choice(legal))
+
+    _apply_action(action)
+    _recompute_policy(append_curve=True)
+
+
+def _serialize_state() -> dict:
+    winner = _winner_from_board(BOARD)
+    matrix = _board_matrix(BOARD)
+    columns = _columns_for_state(BOARD)
+
+    model_name = os.path.basename(CURRENT_MODEL_PATH) if CURRENT_MODEL_PATH else "random(init)"
+    return {
+        "game": ACTIVE_GAME_NAME,
+        "size": GAME.getGameSpec().board_size,
+        "columns": columns,
+        "pass_supported": bool(_is_go()),
+        "board": matrix.tolist(),
+        "current_player": int(GAME.getCurrentPlayer(BOARD)),
+        "history": MOVE_LABELS,
+        "history_actions": ACTION_HISTORY,
+        "policy": POLICY_BOARD,
+        "pass_prob": PASS_PROB,
+        "value_curve": VALUE_CURVE,
+        "winner": winner,
+        "model": model_name,
+        "mode": MODE,
+        "human_player": HUMAN_PLAYER,
+    }
+
+
+def _reset_position(mode: str, human_player: int, sims: int | None) -> None:
+    global BOARD, STATE_HISTORY, ACTION_HISTORY, MOVE_LABELS, VALUE_CURVE, MODE, HUMAN_PLAYER, MCTS_OBJ
+
+    MODE = mode
+    HUMAN_PLAYER = 1 if int(human_player) >= 0 else -1
+
+    BOARD = GAME.getInitBoard()
+    STATE_HISTORY = [BOARD]
+    ACTION_HISTORY = []
+    MOVE_LABELS = []
+    VALUE_CURVE = []
+
+    MCTS_OBJ = _create_mcts(sims)
+    _recompute_policy(append_curve=True)
+
+    if MODE != "human_human" and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
+        _ai_move()
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/games")
+def games_api():
+    return jsonify({"games": available_games(), "current": ACTIVE_GAME_NAME})
+
+
+@app.route("/models")
+def models_api():
+    game = normalize_game_name(request.args.get("game", ACTIVE_GAME_NAME))
+    models = _list_models_for_game(game)
+
+    current_name = None
+    if game == ACTIVE_GAME_NAME and CURRENT_MODEL_PATH:
+        current_name = os.path.basename(CURRENT_MODEL_PATH)
+
+    return jsonify({"models": models, "current": current_name})
+
+
+@app.route("/start", methods=["POST"])
+def start_game():
     data = request.get_json(force=True)
-    sims = int(data.get('sims', MCTS_SIMS))
-    mcts = MCTS(GAME, NET, sims)
-    pi = mcts.get_action_probs(BOARD, temp=1)
+
+    game_name = normalize_game_name(data.get("game", ACTIVE_GAME_NAME))
+    mode = data.get("mode", "human_ai")
+    human_player = int(data.get("human_player", 1))
+    sims = data.get("mcts_sims")
+    sims = int(sims) if sims is not None and str(sims).strip() else None
+
+    try:
+        _activate_game(game_name)
+    except ImportError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    requested_model = data.get("model")
+    if requested_model in (None, "", "latest"):
+        requested_model = _latest_model_for_game(ACTIVE_GAME_NAME)
+
+    if requested_model == "random":
+        _reset_random_network()
+    elif requested_model:
+        if not _load_model(requested_model):
+            return jsonify({"error": f"model not found: {requested_model}"}), 400
+
+    _reset_position(mode=mode, human_player=human_player, sims=sims)
+    return jsonify({"success": True, **_serialize_state()})
+
+
+@app.route("/state")
+def state_api():
+    return jsonify(_serialize_state())
+
+
+@app.route("/prior", methods=["POST"])
+def prior_api():
+    data = request.get_json(force=True)
+    size = GAME.getGameSpec().board_size
+
+    if data.get("pass"):
+        action = GAME.getActionSize() - 1
+    elif "action" in data:
+        action = int(data["action"])
+    else:
+        x = int(data["x"])
+        y = int(data["y"])
+        if not (0 <= x < size and 0 <= y < size):
+            return jsonify({"error": "out of range"}), 400
+        action = _action_from_xy(BOARD, x, y)
+
+    valids = GAME.getValidMoves(BOARD)
+    if action < 0 or action >= GAME.getActionSize() or int(valids[action]) == 0:
+        return jsonify({"error": "invalid"}), 400
+
+    tmp_board, _ = GAME.getNextState(BOARD, action)
+    policy, _ = _evaluate_state(tmp_board)
+    board_policy, pass_prob = _policy_to_payload(policy, tmp_board)
+    return jsonify({"policy": board_policy, "pass_prob": pass_prob})
+
+
+@app.route("/move", methods=["POST"])
+def move_api():
+    data = request.get_json(force=True)
+    size = GAME.getGameSpec().board_size
+
+    if _winner_from_board(BOARD) is not None:
+        return jsonify({"error": "game over"}), 400
+
+    if MODE != "human_human" and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
+        return jsonify({"error": "not your turn"}), 400
+
+    if data.get("pass"):
+        action = GAME.getActionSize() - 1
+    elif "action" in data:
+        action = int(data["action"])
+    else:
+        x = int(data["x"])
+        y = int(data["y"])
+        if not (0 <= x < size and 0 <= y < size):
+            return jsonify({"error": "out of range"}), 400
+        action = _action_from_xy(BOARD, x, y)
+
+    valids = GAME.getValidMoves(BOARD)
+    if action < 0 or action >= GAME.getActionSize() or int(valids[action]) == 0:
+        return jsonify({"error": "invalid"}), 400
+
+    _apply_action(action)
+    _recompute_policy(append_curve=True)
+
+    if _winner_from_board(BOARD) is None and MODE != "human_human" and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
+        _ai_move()
+
+    return jsonify(_serialize_state())
+
+
+@app.route("/ai_step", methods=["POST"])
+def ai_step_api():
+    if MODE != "ai_ai":
+        return jsonify({"error": "invalid mode"}), 400
+
+    if _winner_from_board(BOARD) is not None:
+        return jsonify({"error": "game over"}), 400
+
+    _ai_move()
+    return jsonify(_serialize_state())
+
+
+@app.route("/undo", methods=["POST"])
+def undo_api():
+    global MCTS_OBJ
+
+    if not ACTION_HISTORY:
+        return jsonify({"error": "no moves"}), 400
+
+    _undo_once()
+    if MODE != "human_human" and GAME.getCurrentPlayer(BOARD) != HUMAN_PLAYER:
+        _undo_once()
+
+    sims = getattr(MCTS_OBJ, "sims", get_search_config(ACTIVE_GAME_NAME).mcts_sims)
+    MCTS_OBJ = _create_mcts(sims)
+    _recompute_policy(append_curve=False)
+
+    return jsonify(_serialize_state())
+
+
+@app.route("/analyze", methods=["POST"])
+def analyze_api():
+    data = request.get_json(force=True)
+    sims = int(data.get("sims", get_search_config(ACTIVE_GAME_NAME).mcts_sims))
+
+    mcts = _create_mcts(sims)
+    pi = mcts.get_action_probs(BOARD, temp=1, add_noise=False)
+
     s_root = GAME.stringRepresentation(BOARD)
     value = 0.0
-    for a in range(GAME.getActionSize()):
-        if (s_root, a) in mcts.Qsa:
-            value += pi[a] * mcts.Qsa[(s_root, a)]
-    policy = np.array(pi).reshape(GAME.size, GAME.size).tolist()
-    return jsonify(policy=policy, value=float(value * GAME.getCurrentPlayer(BOARD)))
+    for action in range(GAME.getActionSize()):
+        if (s_root, action) in mcts.Qsa:
+            value += float(pi[action]) * float(mcts.Qsa[(s_root, action)])
 
-if __name__ == '__main__':
+    policy, pass_prob = _policy_to_payload(np.asarray(pi, dtype=np.float32), BOARD)
+    return jsonify({
+        "policy": policy,
+        "pass_prob": pass_prob,
+        "value": float(value * GAME.getCurrentPlayer(BOARD)),
+    })
+
+
+def _bootstrap() -> None:
+    _activate_game(ACTIVE_GAME_NAME)
+
+    default_model = _latest_model_for_game(ACTIVE_GAME_NAME)
+    if default_model:
+        _load_model(default_model)
+
+    _reset_position(mode="human_ai", human_player=1, sims=None)
+
+
+_bootstrap()
+
+
+if __name__ == "__main__":
     app.run(debug=True)
-

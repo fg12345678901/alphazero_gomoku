@@ -1,61 +1,8 @@
-# # evaluate.py
-# import argparse, os
-# import torch
-# import numpy as np
-#
-# from gomoku.game import GomokuGame
-# from mcts.mcts import MCTS
-# from network.model import AlphaZeroNet
-# from config import *
-#
-# def human_vs_ai(model_path):
-#     game = GomokuGame(BOARD_SIZE, N_IN_ROW)
-#     net = AlphaZeroNet().to(DEVICE)
-#     net.load_state_dict(torch.load(model_path, map_location=DEVICE))
-#     mcts = MCTS(game, net)
-#
-#     board = game.getInitBoard()
-#     while True:
-#         print(board)
-#         if board.current_player == 1:
-#             # AI 执黑先
-#             pi = mcts.get_action_probs(board, temp=0)
-#             move = np.argmax(pi)
-#             print("AI 落子:", move)
-#         else:
-#             move = int(input("请输入落子索引 0‑224: "))
-#         board, _ = game.getNextState(board, move)
-#         winner = board.get_winner()            # 1=黑, ‑1=白, 0=平, None=继续
-#         if winner is not None:
-#             print(board)
-#             if winner == 1:
-#                 print("黑棋胜")
-#             elif winner == -1:
-#                 print("白棋胜")
-#             else:
-#                 print("平局")
-#             break
-#
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("--model", required=True, help="模型文件 (.pt)")
-#     args = parser.parse_args()
-#     human_vs_ai(args.model)
-
-
-
-
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-evaluate.py – Evaluation / play script for the AlphaZero Gomoku project.
+"""Generic evaluation/play script for AlphaZero games.
 
-Features
---------
-1. Human vs AI
-2. AI vs AI
-3. Coordinate input & rich board display
-See docstring and CLI help (-h) for details.
+Supported games are provided by ``games.registry`` (currently gomoku/go).
 """
 from __future__ import annotations
 
@@ -64,224 +11,325 @@ import os
 import string
 import sys
 from pathlib import Path
-from typing import Tuple, Optional
 
 import numpy as np
-import torch
 
-from gomoku.game import GomokuGame
+from config import DEVICE, GAME_NAME, get_search_config
+from games.registry import available_games, create_game, normalize_game_name
 from mcts.mcts import MCTS
-from network.model import AlphaZeroNet
-from config import BOARD_SIZE, N_IN_ROW, DEVICE
-
-# -----------------------------------------------------------------------------#
-# Helper utilities
-# -----------------------------------------------------------------------------#
-_COORD_LETTERS = string.ascii_uppercase[:BOARD_SIZE]  # e.g. "ABCDEFGHIJKLMNO"
+from network.checkpoint import (
+    build_model_for_game,
+    load_checkpoint,
+    validate_checkpoint_meta,
+)
 
 
-def _print_board(board) -> None:
-    """Print board with coordinates (letters = columns, numbers = rows)."""
-    stone = {1: "●", -1: "○", 0: "·"}
-    header = "   " + " ".join(_COL for _COL in _COORD_LETTERS)
-    print(header)
-    for i in range(board.size):
+def _winner_from_state(game, board) -> int | None:
+    result_for_black = float(game.getGameEnded(board, 1))
+    if result_for_black == 0:
+        return None
+    if abs(result_for_black) < 1e-3:
+        return 0
+    return 1 if result_for_black > 0 else -1
+
+
+def _go_columns(board, size: int) -> list[str]:
+    cols: list[str] = []
+    for action in range(size):
+        try:
+            coord = str(board.action_to_string(board.current_player(), int(action))).split()[-1]
+        except Exception:
+            cols = []
+            break
+        if not coord:
+            cols = []
+            break
+        cols.append(coord[0].upper())
+    if len(cols) == size and len(set(cols)) == size:
+        return cols
+
+    fallback = [c for c in string.ascii_uppercase if c != "I"]
+    return fallback[:size]
+
+
+def _columns_for_game(game_name: str, board, size: int) -> list[str]:
+    if game_name == "go":
+        return _go_columns(board, size)
+    return list(string.ascii_uppercase[:size])
+
+
+def _format_board(game_name: str, board, size: int) -> str:
+    if game_name == "go":
+        return str(board)
+
+    cols = _columns_for_game(game_name, board, size)
+    stone = {1: "X", -1: "O", 0: "."}
+    header = "   " + " ".join(cols)
+    rows = [header]
+    matrix = np.asarray(board.board, dtype=np.int8)
+    for i in range(size):
         row_num = str(i + 1).rjust(2, " ")
-        row_str = " ".join(stone[int(s)] for s in board.board[i])
-        print(f"{row_num} {row_str}")
-    print(f"Current turn: {'Black (●)' if board.current_player == 1 else 'White (○)'}\n")
+        row_cells = " ".join(stone[int(v)] for v in matrix[i])
+        rows.append(f"{row_num} {row_cells}")
+    return "\n".join(rows)
 
 
-def _parse_move(s: str, size: int) -> Optional[Tuple[int, int]]:
-    """
-    Convert user input to (row, col). Accepted formats:
+def _format_action(game_name: str, board, action: int, size: int) -> str:
+    if game_name == "go":
+        try:
+            coord = str(board.action_to_string(board.current_player(), int(action))).split()[-1]
+            return coord.upper()
+        except Exception:
+            pass
+        if action == size * size:
+            return "PASS"
 
-      H8 / h8       -> algebraic (letter + row number, 1‑based)
-      8 8 , 8,8     -> whitespace or comma separated (1‑based row col)
-      112           -> flat index (0‑(size^2‑1)) for兼容旧脚本
-    """
-    s = s.strip().lower()
+    cols = _columns_for_game(game_name, board, size)
+    row, col = divmod(int(action), size)
+    if 0 <= col < len(cols):
+        return f"{cols[col]}{row + 1}"
+    return str(action)
 
-    # flat index
-    if s.isdigit():
-        idx = int(s)
-        if 0 <= idx < size * size:
-            return divmod(idx, size)
+
+def _parse_move_input(game_name: str, board, raw: str, size: int, action_size: int) -> int | None:
+    text = raw.strip()
+    if not text:
         return None
 
-    # row/col separated
-    if "," in s or " " in s:
-        for sep in (",", " "):
-            if sep in s:
-                parts = [p for p in s.split(sep) if p]
-                break
-        if len(parts) == 2 and all(p.isdigit() for p in parts):
-            r, c = map(int, parts)
-            if 1 <= r <= size and 1 <= c <= size:
-                return r - 1, c - 1
+    lowered = text.lower()
+    if lowered in {"q", "quit", "exit"}:
+        raise KeyboardInterrupt
+
+    # Flat action index (useful for debugging any game).
+    if lowered.isdigit():
+        idx = int(lowered)
+        if 0 <= idx < action_size:
+            return idx
         return None
 
-    # algebraic
-    if len(s) >= 2 and s[0].isalpha() and s[1:].isdigit():
-        col = _COORD_LETTERS.find(s[0].upper())
-        row = int(s[1:]) - 1
-        if 0 <= col < size and 0 <= row < size:
-            return row, col
+    if game_name == "go":
+        if lowered in {"pass", "p"}:
+            return action_size - 1
+
+        token = text.replace(" ", "")
+        if len(token) >= 2 and token[0].isalpha() and token[1:].isdigit():
+            coord = token[0].lower() + token[1:]
+            try:
+                action = int(board.string_to_action(coord))
+                if 0 <= action < action_size:
+                    return action
+            except Exception:
+                return None
+        return None
+
+    # Gomoku: support "row col" / "row,col" and algebraic (A1).
+    if "," in text or " " in text:
+        sep = "," if "," in text else " "
+        parts = [p for p in text.split(sep) if p]
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            row = int(parts[0])
+            col = int(parts[1])
+            if 1 <= row <= size and 1 <= col <= size:
+                return (row - 1) * size + (col - 1)
+
+    token = text.upper().replace(" ", "")
+    cols = _columns_for_game(game_name, board, size)
+    if len(token) >= 2 and token[0].isalpha() and token[1:].isdigit():
+        col_ch = token[0]
+        if col_ch in cols:
+            col = cols.index(col_ch)
+            row = int(token[1:])
+            if 1 <= row <= size:
+                return (row - 1) * size + col
 
     return None
 
 
-def _load_net(path: str | Path) -> AlphaZeroNet:
-    """Load network weights to DEVICE."""
-    net = AlphaZeroNet().to(DEVICE)
-    payload = torch.load(path, map_location=DEVICE)
-    if isinstance(payload, dict) and "state_dict" in payload:
-        state_dict = payload["state_dict"]
-    else:
-        state_dict = payload
-    net.load_state_dict(state_dict)
+def _build_mcts(game_name: str, game, net, sims_override: int | None) -> MCTS:
+    cfg = get_search_config(game_name)
+    sims = int(sims_override) if sims_override and sims_override > 0 else cfg.mcts_sims
+    return MCTS(
+        game,
+        net,
+        sims=sims,
+        cpuct=cfg.cpuct,
+        dirichlet_alpha=cfg.dirichlet_alpha,
+        dirichlet_eps=cfg.dirichlet_eps,
+    )
+
+
+def _load_net(game, model_path: str | None):
+    net = build_model_for_game(game, device=DEVICE)
+    descriptor = "random(init)"
+
+    if model_path:
+        path = Path(model_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Model not found: {path}")
+        state_dict, meta = load_checkpoint(str(path), map_location=DEVICE)
+        validate_checkpoint_meta(meta, game.getGameSpec())
+        net.load_state_dict(state_dict)
+        descriptor = str(path)
+
     net.eval()
-    return net
+    return net, descriptor
 
 
-# -----------------------------------------------------------------------------#
-# Human vs AI
-# -----------------------------------------------------------------------------#
-def _human_loop(model_path: str | Path, human_color: str) -> None:
-    colour_map = {"black": 1, "white": -1}
-    human_player = colour_map[human_color]
+def _play_human_vs_ai(game_name: str, game, net, human_color: str, sims: int | None) -> None:
+    size = game.getGameSpec().board_size
+    action_size = game.getActionSize()
+
+    human_player = 1 if human_color == "black" else -1
     ai_player = -human_player
+    mcts = _build_mcts(game_name, game, net, sims)
 
-    game = GomokuGame(BOARD_SIZE, N_IN_ROW)
     board = game.getInitBoard()
-
-    net = _load_net(model_path)
-    mcts = MCTS(game, net)
-
-    print(f"Human plays {human_color}. Enter moves like \"H8\" / \"8 8\" / \"7,7\".\n")
+    print(
+        f"Human={human_color} ({human_player:+d}), AI={ai_player:+d}. "
+        "Input: A1 / 'row col' / flat index; Go also supports 'pass'."
+    )
 
     while True:
-        _print_board(board)
+        print("\n" + _format_board(game_name, board, size))
+        winner = _winner_from_state(game, board)
+        if winner is not None:
+            if winner == 0:
+                print("Result: draw")
+            elif winner == 1:
+                print("Result: black wins")
+            else:
+                print("Result: white wins")
+            return
 
-        if board.current_player == human_player:
-            # – Human move –
+        current = int(game.getCurrentPlayer(board))
+        if current == human_player:
             while True:
                 try:
-                    raw = input("Your move: ")
-                except (EOFError, KeyboardInterrupt):
-                    print("\nAborted.")
-                    sys.exit(0)
-
-                coord = _parse_move(raw, board.size)
-                if coord is None:
-                    print("Cannot parse input – try again.")
+                    raw = input("Your move> ")
+                except EOFError:
+                    raise KeyboardInterrupt
+                action = _parse_move_input(game_name, board, raw, size, action_size)
+                if action is None:
+                    print("Invalid input, try again.")
                     continue
-                if board.board[coord] != 0:
-                    print("Occupied – try again.")
+                valids = game.getValidMoves(board)
+                if action < 0 or action >= action_size or int(valids[action]) == 0:
+                    print("Illegal move, try again.")
                     continue
-                move = board.coord_to_move(*coord)
                 break
+            label = _format_action(game_name, board, action, size)
+            print(f"You play: {label}")
         else:
-            # – AI move –
-            pi = mcts.get_action_probs(board, temp=0)
-            move = int(np.argmax(pi))
-            coord = board.move_to_coord(move)
-            print(f"AI move: {_COORD_LETTERS[coord[1]]}{coord[0]+1}")
+            pi = mcts.get_action_probs(board, temp=0, add_noise=False)
+            action = int(np.argmax(pi))
+            label = _format_action(game_name, board, action, size)
+            print(f"AI plays: {label}")
 
-        board, _ = game.getNextState(board, move)
-        winner = board.get_winner()  # 1=black, -1=white, 0=draw, None=ongoing
-        if winner is not None:
-            _print_board(board)
-            if winner == 1:
-                print("Black (●) wins!")
-            elif winner == -1:
-                print("White (○) wins!")
-            else:
-                print("Draw.")
-            break
+        board, _ = game.getNextState(board, action)
 
 
-# -----------------------------------------------------------------------------#
-# AI vs AI
-# -----------------------------------------------------------------------------#
-def _ai_vs_ai(model1_path: str | Path,
-              model2_path: str | Path,
-              games: int = 1) -> None:
-    """
-    Let two checkpoints play `games` games, swapping colours each game.
-    """
-    net1, net2 = _load_net(model1_path), _load_net(model2_path)
-    game = GomokuGame(BOARD_SIZE, N_IN_ROW)
-    mcts1, mcts2 = MCTS(game, net1), MCTS(game, net2)
-
+def _play_ai_vs_ai(
+    game_name: str,
+    game,
+    net1,
+    net2,
+    games: int,
+    sims: int | None,
+    desc1: str,
+    desc2: str,
+) -> None:
+    size = game.getGameSpec().board_size
     score = {"model1": 0, "model2": 0, "draw": 0}
-    for g in range(1, games + 1):
-        print(f"\n=== Game {g} ===")
+
+    print(f"model1: {desc1}")
+    print(f"model2: {desc2}")
+
+    for game_idx in range(games):
+        model1_is_black = (game_idx % 2 == 0)
+        black_net = net1 if model1_is_black else net2
+        white_net = net2 if model1_is_black else net1
+        mcts_black = _build_mcts(game_name, game, black_net, sims)
+        mcts_white = _build_mcts(game_name, game, white_net, sims)
+
         board = game.getInitBoard()
-        black_is_model1 = (g % 2 == 1)  # 轮换黑棋
+        print(f"\n=== Game {game_idx + 1} / {games} ===")
 
         while True:
-            _print_board(board)
-            current_mcts = mcts1 if (board.current_player == 1) == black_is_model1 else mcts2
-            pi = current_mcts.get_action_probs(board, temp=0)
-            move = int(np.argmax(pi))
-            coord = board.move_to_coord(move)
-            colour = "Black" if board.current_player == 1 else "White"
-            who = "model1" if current_mcts is mcts1 else "model2"
-            print(f"{colour} ({who}) -> {_COORD_LETTERS[coord[1]]}{coord[0]+1}")
-
-            board, _ = game.getNextState(board, move)
-            winner = board.get_winner()
+            winner = _winner_from_state(game, board)
             if winner is not None:
-                _print_board(board)
                 if winner == 0:
-                    print("Draw.")
                     score["draw"] += 1
+                    print("Result: draw")
                 else:
-                    if (winner == 1 and black_is_model1) or (winner == -1 and not black_is_model1):
+                    model1_wins = (winner == 1 and model1_is_black) or (winner == -1 and not model1_is_black)
+                    if model1_wins:
                         score["model1"] += 1
-                        print("model1 wins.")
+                        print("Result: model1 wins")
                     else:
                         score["model2"] += 1
-                        print("model2 wins.")
+                        print("Result: model2 wins")
                 break
 
-    # 统计
+            current = int(game.getCurrentPlayer(board))
+            mcts = mcts_black if current == 1 else mcts_white
+            pi = mcts.get_action_probs(board, temp=0, add_noise=False)
+            action = int(np.argmax(pi))
+            label = _format_action(game_name, board, action, size)
+            side = "B" if current == 1 else "W"
+            who = "model1" if ((current == 1 and model1_is_black) or (current == -1 and not model1_is_black)) else "model2"
+            print(f"{side} ({who}) -> {label}")
+            board, _ = game.getNextState(board, action)
+
     total = sum(score.values())
     print("\n--- Final score ---")
-    for k, v in score.items():
-        print(f"{k:<7}: {v:>3}")
-    if total:
-        print(f"model1 win‑rate: {score['model1'] / total:.1%}")
+    print(f"model1: {score['model1']}")
+    print(f"model2: {score['model2']}")
+    print(f"draw  : {score['draw']}")
+    if total > 0:
+        print(f"model1 win-rate: {score['model1'] / total:.1%}")
 
 
-# -----------------------------------------------------------------------------#
-# CLI entry
-# -----------------------------------------------------------------------------#
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Gomoku AlphaZero evaluator")
-    parser.add_argument("--model1", required=True, help="Path to first model (.pt)")
-    parser.add_argument("--model2", help="Path to second model (.pt). "
-                                         "Omit for self‑play unless --human is used.")
-    parser.add_argument("--human", action="store_true",
-                        help="Activate human‑vs‑AI mode (model1 is the AI).")
-    parser.add_argument("--human-color", choices=("black", "white"), default="white",
-                        help="Your colour when --human is set (default: black).")
-    parser.add_argument("--games", type=int, default=1,
-                        help="Number of games for AI‑vs‑AI (default: 1).")
+    parser = argparse.ArgumentParser(description="AlphaZero evaluator (multi-game)")
+    parser.add_argument("--game", choices=available_games(), default=GAME_NAME, help="game type")
+    parser.add_argument("--model1", default=None, help="path to first model checkpoint")
+    parser.add_argument("--model2", default=None, help="path to second model checkpoint")
+    parser.add_argument("--human", action="store_true", help="human vs AI mode")
+    parser.add_argument("--human-color", choices=("black", "white"), default="white")
+    parser.add_argument("--games", type=int, default=1, help="number of games for AI vs AI")
+    parser.add_argument("--sims", type=int, default=None, help="override MCTS simulations")
     args = parser.parse_args()
 
-    # 快速校验
-    if args.human and args.model2:
-        parser.error("Cannot specify --model2 when --human is set.")
-    if not args.human and args.games < 1:
-        parser.error("--games must be >= 1.")
+    game_name = normalize_game_name(args.game)
+    try:
+        game = create_game(game_name)
+    except ImportError as exc:
+        parser.error(str(exc))
+
+    try:
+        net1, desc1 = _load_net(game, args.model1)
+        model2_path = args.model2
+        if model2_path is None and not args.human and args.model1 is not None:
+            model2_path = args.model1
+        net2, desc2 = _load_net(game, model2_path)
+    except (FileNotFoundError, ValueError) as exc:
+        parser.error(str(exc))
 
     if args.human:
-        _human_loop(args.model1, args.human_color)
-    else:
-        second = args.model2 or args.model1
-        _ai_vs_ai(args.model1, second, games=args.games)
+        if args.model2:
+            parser.error("--model2 is not used in --human mode")
+        print(f"Using model: {desc1} on device={DEVICE}")
+        try:
+            _play_human_vs_ai(game_name, game, net1, args.human_color, args.sims)
+        except KeyboardInterrupt:
+            print("\nAborted.")
+            sys.exit(0)
+        return
+
+    if args.games < 1:
+        parser.error("--games must be >= 1")
+
+    _play_ai_vs_ai(game_name, game, net1, net2, args.games, args.sims, desc1, desc2)
 
 
 if __name__ == "__main__":
