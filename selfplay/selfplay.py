@@ -120,11 +120,6 @@ class SelfPlayWorker:
                     for sym_planes, sym_pi in self.game.getSymmetries(planes, pi_item):
                         final_examples.append((sym_planes, sym_pi, z))
 
-                        # Keep historical behavior: duplicate with sign-inverted turn plane.
-                        planes_turn_flipped = sym_planes.copy()
-                        planes_turn_flipped[-1] *= -1
-                        final_examples.append((planes_turn_flipped, sym_pi, z))
-
                 self.examples.extend(final_examples)
                 return
             step += 1
