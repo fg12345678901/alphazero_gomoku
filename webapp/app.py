@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from flask import Flask, jsonify, render_template, request
 
-from config import DEVICE, GAME_NAME, get_search_config
+from config import DEVICE, GAME_NAME, get_model_config, get_search_config
 from games.registry import available_games, create_game, normalize_game_name
 from mcts.mcts import MCTS
 from network.checkpoint import build_model_for_game, load_checkpoint, validate_checkpoint_meta
@@ -246,9 +246,19 @@ def _create_mcts(sims: int | None = None) -> MCTS:
     )
 
 
+def _active_model_cfg():
+    return get_model_config(ACTIVE_GAME_NAME)
+
+
 def _reset_random_network() -> None:
     global NET, CURRENT_MODEL_PATH, _LOADED_MODEL_PATH
-    NET = build_model_for_game(GAME, device=DEVICE)
+    model_cfg = _active_model_cfg()
+    NET = build_model_for_game(
+        GAME,
+        device=DEVICE,
+        channels=model_cfg.channels,
+        blocks=model_cfg.num_res,
+    )
     NET.eval()
     CURRENT_MODEL_PATH = None
     _LOADED_MODEL_PATH = None
@@ -266,8 +276,14 @@ def _load_model(path: str | None) -> bool:
             CURRENT_MODEL_PATH = resolved
             return True
 
+        model_cfg = _active_model_cfg()
         state_dict, meta = load_checkpoint(resolved, map_location=DEVICE)
-        validate_checkpoint_meta(meta, GAME.getGameSpec())
+        validate_checkpoint_meta(
+            meta,
+            GAME.getGameSpec(),
+            expected_channels=model_cfg.channels,
+            expected_blocks=model_cfg.num_res,
+        )
         NET.load_state_dict(state_dict)
         NET.eval()
 
@@ -278,8 +294,14 @@ def _load_model(path: str | None) -> bool:
 
 def _is_checkpoint_compatible(path: str) -> bool:
     try:
+        model_cfg = _active_model_cfg()
         _, meta = load_checkpoint(path, map_location="cpu")
-        validate_checkpoint_meta(meta, GAME.getGameSpec())
+        validate_checkpoint_meta(
+            meta,
+            GAME.getGameSpec(),
+            expected_channels=model_cfg.channels,
+            expected_blocks=model_cfg.num_res,
+        )
     except Exception:
         return False
     return True
@@ -293,7 +315,13 @@ def _activate_game(game_name: str) -> None:
         return
 
     GAME = create_game(normalized)
-    NET = build_model_for_game(GAME, device=DEVICE)
+    model_cfg = _active_model_cfg()
+    NET = build_model_for_game(
+        GAME,
+        device=DEVICE,
+        channels=model_cfg.channels,
+        blocks=model_cfg.num_res,
+    )
     NET.eval()
 
     ACTIVE_GAME_NAME = normalized

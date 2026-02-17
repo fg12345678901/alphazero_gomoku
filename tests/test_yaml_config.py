@@ -5,7 +5,15 @@ import unittest
 
 import yaml
 
-from config import CONFIG_DIR, get_rule_config, get_search_config
+from config import (
+    CONFIG_DIR,
+    get_logging_config,
+    get_model_config,
+    get_rule_config,
+    get_runtime_config,
+    get_search_config,
+    get_train_config,
+)
 
 
 class YamlConfigTests(unittest.TestCase):
@@ -22,13 +30,35 @@ class YamlConfigTests(unittest.TestCase):
                 payload = yaml.safe_load(fp)
             self.assertIn("rules", payload)
             self.assertIn("search", payload)
+            self.assertIn("model", payload)
+            self.assertIn("train", payload)
+            self.assertIn("runtime", payload)
+            self.assertIn("logging", payload)
 
             rule = get_rule_config(game_name)
             search = get_search_config(game_name)
+            model = get_model_config(game_name)
+            train = get_train_config(game_name)
+            runtime = get_runtime_config(game_name)
+            logging_cfg = get_logging_config(game_name)
             self.assertGreater(rule.board_size, 0)
             self.assertGreater(rule.history_steps, 0)
             self.assertGreater(search.mcts_sims, 0)
             self.assertGreater(search.eval_games, 0)
+            self.assertGreater(model.channels, 0)
+            self.assertGreater(model.num_res, 0)
+            self.assertGreater(train.buffer_size, 0)
+            self.assertGreater(train.batch_size, 0)
+            self.assertGreater(train.train_updates, 0)
+            self.assertGreater(train.learning_rate, 0)
+            self.assertGreater(train.weight_decay, 0)
+            self.assertGreater(train.selfplay_games, 0)
+            self.assertTrue(runtime.model_dir)
+            self.assertTrue(runtime.data_dir)
+            self.assertTrue(runtime.log_dir)
+            self.assertTrue(runtime.tb_dir)
+            self.assertTrue(logging_cfg.level)
+            self.assertTrue(logging_cfg.name)
 
 
 if __name__ == "__main__":

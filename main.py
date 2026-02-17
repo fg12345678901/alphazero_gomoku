@@ -4,7 +4,7 @@ import argparse
 import glob
 import os
 
-from config import DEVICE, GAME_NAME, TRAIN_UPDATES
+from config import DEVICE, GAME_NAME, get_train_config
 from games.registry import available_games, create_game
 from logging_setup import setup_logging
 from runtime_paths import resolve_runtime_paths
@@ -35,11 +35,11 @@ def main():
 
     p_sp = sub.add_parser("selfplay")
     _add_game_arg(p_sp)
-    p_sp.add_argument("--num-games", type=int, default=100)
+    p_sp.add_argument("--num-games", type=int, default=None)
 
     p_tr = sub.add_parser("train")
     _add_game_arg(p_tr)
-    p_tr.add_argument("--updates", type=int, default=TRAIN_UPDATES)
+    p_tr.add_argument("--updates", type=int, default=None)
     p_tr.add_argument("--ddp", action="store_true", help="use DDP for training")
     p_tr.add_argument("--local_rank", type=int, default=None, help=argparse.SUPPRESS)
 
@@ -61,10 +61,11 @@ def main():
         parser.error(str(exc))
 
     if args.cmd == "selfplay":
+        train_cfg = get_train_config(args.game)
         sp = SelfPlayWorker(
             net_path=latest_model(paths.model_dir),
             out_dir=paths.data_dir,
-            num_games=args.num_games,
+            num_games=args.num_games if args.num_games is not None else train_cfg.selfplay_games,
             game=game,
             game_name=args.game,
         )

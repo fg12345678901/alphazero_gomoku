@@ -9,7 +9,7 @@ from typing import List
 import numpy as np
 from tqdm import trange
 
-from config import DATA_DIR, DEVICE, GAME_NAME, get_search_config
+from config import DATA_DIR, DEVICE, GAME_NAME, get_model_config, get_search_config
 from games.base import GameLike
 from games.registry import create_game, normalize_game_name
 from mcts.mcts import MCTS
@@ -33,16 +33,27 @@ class SelfPlayWorker:
     ):
         self.game_name = normalize_game_name(game_name)
         self.game = game if game is not None else create_game(self.game_name)
+        self.model_cfg = get_model_config(self.game_name)
         self.search_cfg = get_search_config(self.game_name)
 
         self.out_dir = out_dir or DATA_DIR
         os.makedirs(self.out_dir, exist_ok=True)
 
-        self.net = build_model_for_game(self.game, device=DEVICE)
+        self.net = build_model_for_game(
+            self.game,
+            device=DEVICE,
+            channels=self.model_cfg.channels,
+            blocks=self.model_cfg.num_res,
+        )
         if net_path and os.path.exists(net_path):
             try:
                 state_dict, meta = load_checkpoint(net_path, map_location=DEVICE)
-                validate_checkpoint_meta(meta, self.game.getGameSpec())
+                validate_checkpoint_meta(
+                    meta,
+                    self.game.getGameSpec(),
+                    expected_channels=self.model_cfg.channels,
+                    expected_blocks=self.model_cfg.num_res,
+                )
                 self.net.load_state_dict(state_dict)
                 logger.info("Loaded model %s", net_path)
             except ValueError as exc:

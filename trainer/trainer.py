@@ -18,16 +18,11 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from config import (
-    BATCH_SIZE,
-    BUFFER_SIZE,
-    CHANNELS,
     DEVICE,
     GAME_NAME,
-    LEARNING_RATE,
-    NUM_RES,
-    TRAIN_UPDATES,
-    WEIGHT_DECAY,
+    get_model_config,
     get_search_config,
+    get_train_config,
 )
 from games.base import GameLike
 from games.registry import create_game, normalize_game_name
@@ -58,7 +53,9 @@ class Trainer:
         self.game_name = normalize_game_name(game_name)
         self.game = game if game is not None else create_game(self.game_name)
         self.game_spec = self.game.getGameSpec()
+        self.model_cfg = get_model_config(self.game_name)
         self.search_cfg = get_search_config(self.game_name)
+        self.train_cfg = get_train_config(self.game_name)
         self.paths = paths if paths is not None else resolve_runtime_paths(self.game_name)
 
         os.makedirs(self.paths.model_dir, exist_ok=True)
@@ -73,7 +70,12 @@ class Trainer:
         else:
             self.device = torch.device(DEVICE)
 
-        self.net = build_model_for_game(self.game, device=self.device)
+        self.net = build_model_for_game(
+            self.game,
+            device=self.device,
+            channels=self.model_cfg.channels,
+            blocks=self.model_cfg.num_res,
+        )
         if distributed:
             self.net = nn.parallel.DistributedDataParallel(
                 self.net,
@@ -91,13 +93,13 @@ class Trainer:
 
         self.optimizer = optim.Adam(
             self.net.parameters(),
-            lr=LEARNING_RATE,
-            weight_decay=WEIGHT_DECAY,
+            lr=self.train_cfg.learning_rate,
+            weight_decay=self.train_cfg.weight_decay,
         )
         self.buffer = ReplayBuffer(
             data_dir=self.paths.data_dir,
-            buffer_size=BUFFER_SIZE,
-            default_batch_size=BATCH_SIZE,
+            buffer_size=self.train_cfg.buffer_size,
+            default_batch_size=self.train_cfg.batch_size,
             expected_input_planes=self.game_spec.input_planes,
             expected_action_size=self.game_spec.action_size,
         )
@@ -107,7 +109,10 @@ class Trainer:
 
         self._load_latest_model()
 
-    def train(self, updates: int = TRAIN_UPDATES):
+    def train(self, updates: int | None = None):
+        if updates is None:
+            updates = self.train_cfg.train_updates
+
         if len(self.buffer) == 0:
             logger.warning(
                 "Replay buffer is empty under %s, skip training.",
@@ -120,14 +125,14 @@ class Trainer:
             os.makedirs(self.paths.tb_dir, exist_ok=True)
             self.writer = SummaryWriter(os.path.join(self.paths.tb_dir, f"net_{ts}"))
 
-        batch_size = BATCH_SIZE
+        batch_size = self.train_cfg.batch_size
         if self.distributed:
             world_size = dist.get_world_size()
-            batch_size = max(1, BATCH_SIZE // world_size)
-            if BATCH_SIZE % world_size != 0 and dist.get_rank() == 0:
+            batch_size = max(1, self.train_cfg.batch_size // world_size)
+            if self.train_cfg.batch_size % world_size != 0 and dist.get_rank() == 0:
                 logger.warning(
                     "BATCH_SIZE=%d not divisible by world_size=%d; per-rank batch_size=%d",
-                    BATCH_SIZE,
+                    self.train_cfg.batch_size,
                     world_size,
                     batch_size,
                 )
@@ -140,7 +145,7 @@ class Trainer:
         scheduler = CosineAnnealingLR(
             self.optimizer,
             T_max=updates,
-            eta_min=LEARNING_RATE / 100,
+            eta_min=self.train_cfg.learning_rate / 100,
         )
         progress = trange(
             updates,
@@ -200,15 +205,35 @@ class Trainer:
             logger.info("No previous model under %s, skipping arena.", self.paths.model_dir)
             return
 
-        net_new = build_model_for_game(self.game, device=DEVICE)
-        net_old = build_model_for_game(self.game, device=DEVICE)
+        net_new = build_model_for_game(
+            self.game,
+            device=DEVICE,
+            channels=self.model_cfg.channels,
+            blocks=self.model_cfg.num_res,
+        )
+        net_old = build_model_for_game(
+            self.game,
+            device=DEVICE,
+            channels=self.model_cfg.channels,
+            blocks=self.model_cfg.num_res,
+        )
         logger.info("Load NEW model: %s", latest_path)
         logger.info("Load OLD model: %s", prev_path)
 
         sd_new, meta_new = load_checkpoint(latest_path, map_location=DEVICE)
         sd_old, meta_old = load_checkpoint(prev_path, map_location=DEVICE)
-        validate_checkpoint_meta(meta_new, self.game_spec)
-        validate_checkpoint_meta(meta_old, self.game_spec)
+        validate_checkpoint_meta(
+            meta_new,
+            self.game_spec,
+            expected_channels=self.model_cfg.channels,
+            expected_blocks=self.model_cfg.num_res,
+        )
+        validate_checkpoint_meta(
+            meta_old,
+            self.game_spec,
+            expected_channels=self.model_cfg.channels,
+            expected_blocks=self.model_cfg.num_res,
+        )
 
         net_new.load_state_dict(sd_new)
         net_old.load_state_dict(sd_old)
@@ -312,8 +337,8 @@ class Trainer:
         meta = checkpoint_meta(
             game_spec=self.game_spec,
             game_name=self.game_name,
-            channels=CHANNELS,
-            blocks=NUM_RES,
+            channels=self.model_cfg.channels,
+            blocks=self.model_cfg.num_res,
         )
         save_checkpoint(fname, state, meta)
         logger.info("Model saved to %s", fname)
@@ -331,7 +356,12 @@ class Trainer:
         if path:
             target = self.net.module if hasattr(self.net, "module") else self.net
             state_dict, meta = load_checkpoint(path, map_location=self.device)
-            validate_checkpoint_meta(meta, self.game_spec)
+            validate_checkpoint_meta(
+                meta,
+                self.game_spec,
+                expected_channels=self.model_cfg.channels,
+                expected_blocks=self.model_cfg.num_res,
+            )
             target.load_state_dict(state_dict)
             logger.info("Loaded model %s", path)
 
@@ -341,7 +371,12 @@ class Trainer:
         for path in files:
             try:
                 _, meta = load_checkpoint(path, map_location="cpu")
-                validate_checkpoint_meta(meta, self.game_spec)
+                validate_checkpoint_meta(
+                    meta,
+                    self.game_spec,
+                    expected_channels=self.model_cfg.channels,
+                    expected_blocks=self.model_cfg.num_res,
+                )
             except Exception as exc:
                 if path not in self._warned_incompatible_models:
                     logger.warning("Skip incompatible model %s: %s", path, exc)

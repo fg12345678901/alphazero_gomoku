@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 
-from config import DATA_DIR, GAME_NAME, LOG_DIR, MODEL_DIR, TB_DIR
+from config import GAME_NAME, get_runtime_config
 from games.registry import normalize_game_name
 
 
@@ -24,9 +24,10 @@ def _scoped_dir(base_dir: str, game_name: str) -> str:
 
 def resolve_runtime_paths(game_name: str | None = None) -> RuntimePaths:
     normalized = normalize_game_name(game_name or GAME_NAME)
+    runtime_cfg = get_runtime_config(normalized)
     return RuntimePaths(
-        model_dir=_scoped_dir(MODEL_DIR, normalized),
-        data_dir=_scoped_dir(DATA_DIR, normalized),
-        log_dir=_scoped_dir(LOG_DIR, normalized),
-        tb_dir=_scoped_dir(TB_DIR, normalized),
+        model_dir=_scoped_dir(runtime_cfg.model_dir, normalized),
+        data_dir=_scoped_dir(runtime_cfg.data_dir, normalized),
+        log_dir=_scoped_dir(runtime_cfg.log_dir, normalized),
+        tb_dir=_scoped_dir(runtime_cfg.tb_dir, normalized),
     )

@@ -34,6 +34,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_str(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value)
+
+
 def _require_dict(parent: dict[str, Any], key: str, file_path: Path) -> dict[str, Any]:
     value = parent.get(key)
     if not isinstance(value, dict):
@@ -57,6 +64,18 @@ def _require_float(section: dict[str, Any], key: str, file_path: Path) -> float:
         return float(section[key])
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{file_path} key '{key}' must be float") from exc
+
+
+def _require_str(section: dict[str, Any], key: str, file_path: Path) -> str:
+    if key not in section:
+        raise ValueError(f"{file_path} missing key '{key}'")
+    value = section[key]
+    if value is None:
+        raise ValueError(f"{file_path} key '{key}' must be non-empty string")
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{file_path} key '{key}' must be non-empty string")
+    return text
 
 
 @dataclass(frozen=True)
@@ -83,9 +102,44 @@ class SearchConfig:
 
 
 @dataclass(frozen=True)
+class ModelConfig:
+    channels: int
+    num_res: int
+
+
+@dataclass(frozen=True)
+class TrainConfig:
+    buffer_size: int
+    batch_size: int
+    train_updates: int
+    learning_rate: float
+    weight_decay: float
+    eval_threshold: float
+    selfplay_games: int
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    model_dir: str
+    data_dir: str
+    log_dir: str
+    tb_dir: str
+
+
+@dataclass(frozen=True)
+class LoggingConfig:
+    level: str
+    name: str
+
+
+@dataclass(frozen=True)
 class GameConfig:
     rule: RuleConfig
     search: SearchConfig
+    model: ModelConfig
+    train: TrainConfig
+    runtime: RuntimeConfig
+    logging: LoggingConfig
 
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
@@ -102,6 +156,10 @@ def _load_game_yaml(game_name: str, file_path: Path) -> GameConfig:
 
     rules = _require_dict(payload, "rules", file_path)
     search = _require_dict(payload, "search", file_path)
+    model = _require_dict(payload, "model", file_path)
+    train = _require_dict(payload, "train", file_path)
+    runtime = _require_dict(payload, "runtime", file_path)
+    logging_cfg = _require_dict(payload, "logging", file_path)
 
     n_in_row = rules.get("n_in_row")
     komi = rules.get("komi")
@@ -125,8 +183,38 @@ def _load_game_yaml(game_name: str, file_path: Path) -> GameConfig:
         n_temp_moves=_require_int(search, "n_temp_moves", file_path),
         eval_games=_require_int(search, "eval_games", file_path),
     )
+    model_cfg = ModelConfig(
+        channels=_require_int(model, "channels", file_path),
+        num_res=_require_int(model, "num_res", file_path),
+    )
+    train_cfg = TrainConfig(
+        buffer_size=_require_int(train, "buffer_size", file_path),
+        batch_size=_require_int(train, "batch_size", file_path),
+        train_updates=_require_int(train, "train_updates", file_path),
+        learning_rate=_require_float(train, "learning_rate", file_path),
+        weight_decay=_require_float(train, "weight_decay", file_path),
+        eval_threshold=_require_float(train, "eval_threshold", file_path),
+        selfplay_games=_require_int(train, "selfplay_games", file_path),
+    )
+    runtime_cfg = RuntimeConfig(
+        model_dir=_require_str(runtime, "model_dir", file_path),
+        data_dir=_require_str(runtime, "data_dir", file_path),
+        log_dir=_require_str(runtime, "log_dir", file_path),
+        tb_dir=_require_str(runtime, "tb_dir", file_path),
+    )
+    logging_resolved = LoggingConfig(
+        level=_require_str(logging_cfg, "level", file_path),
+        name=_require_str(logging_cfg, "name", file_path),
+    )
 
-    return GameConfig(rule=rule_cfg, search=search_cfg)
+    return GameConfig(
+        rule=rule_cfg,
+        search=search_cfg,
+        model=model_cfg,
+        train=train_cfg,
+        runtime=runtime_cfg,
+        logging=logging_resolved,
+    )
 
 
 def _load_all_game_configs() -> dict[str, GameConfig]:
@@ -191,6 +279,57 @@ def _apply_search_env_overrides(game_name: str, search: SearchConfig) -> SearchC
     return search
 
 
+def _apply_model_env_overrides(game_name: str, model: ModelConfig) -> ModelConfig:
+    prefix = game_name.upper()
+    return ModelConfig(
+        channels=_env_int(f"{prefix}_CHANNELS", _env_int("AZ_CHANNELS", model.channels)),
+        num_res=_env_int(f"{prefix}_NUM_RES", _env_int("AZ_NUM_RES", model.num_res)),
+    )
+
+
+def _apply_train_env_overrides(game_name: str, train: TrainConfig) -> TrainConfig:
+    prefix = game_name.upper()
+    return TrainConfig(
+        buffer_size=_env_int(f"{prefix}_BUFFER_SIZE", _env_int("AZ_BUFFER_SIZE", train.buffer_size)),
+        batch_size=_env_int(f"{prefix}_BATCH_SIZE", _env_int("AZ_BATCH_SIZE", train.batch_size)),
+        train_updates=_env_int(f"{prefix}_TRAIN_UPDATES", _env_int("AZ_TRAIN_UPDATES", train.train_updates)),
+        learning_rate=_env_float(f"{prefix}_LEARNING_RATE", _env_float("AZ_LEARNING_RATE", train.learning_rate)),
+        weight_decay=_env_float(f"{prefix}_WEIGHT_DECAY", _env_float("AZ_WEIGHT_DECAY", train.weight_decay)),
+        eval_threshold=_env_float(
+            f"{prefix}_EVAL_THRESHOLD",
+            _env_float("AZ_EVAL_THRESHOLD", train.eval_threshold),
+        ),
+        selfplay_games=_env_int(
+            f"{prefix}_SELFPLAY_GAMES",
+            _env_int("AZ_SELFPLAY_GAMES", train.selfplay_games),
+        ),
+    )
+
+
+def _apply_runtime_env_overrides(game_name: str, runtime: RuntimeConfig) -> RuntimeConfig:
+    prefix = game_name.upper()
+    return RuntimeConfig(
+        model_dir=_env_str(f"{prefix}_MODEL_DIR", _env_str("AZ_MODEL_DIR", runtime.model_dir)),
+        data_dir=_env_str(f"{prefix}_DATA_DIR", _env_str("AZ_DATA_DIR", runtime.data_dir)),
+        log_dir=_env_str(f"{prefix}_LOG_DIR", _env_str("AZ_LOG_DIR", runtime.log_dir)),
+        tb_dir=_env_str(f"{prefix}_TB_DIR", _env_str("AZ_TB_DIR", runtime.tb_dir)),
+    )
+
+
+def _apply_logging_env_overrides(game_name: str, logging_cfg: LoggingConfig) -> LoggingConfig:
+    prefix = game_name.upper()
+    return LoggingConfig(
+        level=_env_str(
+            f"{prefix}_LOG_LEVEL",
+            _env_str("AZ_LOG_LEVEL", logging_cfg.level),
+        ),
+        name=_env_str(
+            f"{prefix}_LOG_NAME",
+            _env_str("AZ_LOG_NAME", logging_cfg.name),
+        ),
+    )
+
+
 _RAW_GAME_CONFIGS = _load_all_game_configs()
 _RULE_CONFIGS: dict[str, RuleConfig] = {
     game: _apply_rule_env_overrides(game, cfg.rule)
@@ -198,6 +337,22 @@ _RULE_CONFIGS: dict[str, RuleConfig] = {
 }
 _SEARCH_CONFIGS: dict[str, SearchConfig] = {
     game: _apply_search_env_overrides(game, cfg.search)
+    for game, cfg in _RAW_GAME_CONFIGS.items()
+}
+_MODEL_CONFIGS: dict[str, ModelConfig] = {
+    game: _apply_model_env_overrides(game, cfg.model)
+    for game, cfg in _RAW_GAME_CONFIGS.items()
+}
+_TRAIN_CONFIGS: dict[str, TrainConfig] = {
+    game: _apply_train_env_overrides(game, cfg.train)
+    for game, cfg in _RAW_GAME_CONFIGS.items()
+}
+_RUNTIME_CONFIGS: dict[str, RuntimeConfig] = {
+    game: _apply_runtime_env_overrides(game, cfg.runtime)
+    for game, cfg in _RAW_GAME_CONFIGS.items()
+}
+_LOGGING_CONFIGS: dict[str, LoggingConfig] = {
+    game: _apply_logging_env_overrides(game, cfg.logging)
     for game, cfg in _RAW_GAME_CONFIGS.items()
 }
 
@@ -229,39 +384,76 @@ def get_search_config(game_name: str | None = None) -> SearchConfig:
     return _SEARCH_CONFIGS[normalized]
 
 
-CHANNELS = _env_int("AZ_CHANNELS", 256)
-NUM_RES = _env_int("AZ_NUM_RES", 15)
+def get_model_config(game_name: str | None = None) -> ModelConfig:
+    normalized = _normalize_game_name(game_name or GAME_NAME)
+    if normalized not in _MODEL_CONFIGS:
+        options = ", ".join(supported_games())
+        raise ValueError(f"Unsupported game '{game_name}'. Available games: {options}")
+    return _MODEL_CONFIGS[normalized]
 
-BUFFER_SIZE = _env_int("AZ_BUFFER_SIZE", 800_000)
-BATCH_SIZE = _env_int("AZ_BATCH_SIZE", 512)
-TRAIN_UPDATES = _env_int("AZ_TRAIN_UPDATES", 8000)
-LEARNING_RATE = _env_float("AZ_LEARNING_RATE", 8e-4)
-WEIGHT_DECAY = _env_float("AZ_WEIGHT_DECAY", 1e-4)
 
-EVAL_THRESHOLD = _env_float("AZ_EVAL_THRESHOLD", 0.55)  # kept for compatibility
+def get_train_config(game_name: str | None = None) -> TrainConfig:
+    normalized = _normalize_game_name(game_name or GAME_NAME)
+    if normalized not in _TRAIN_CONFIGS:
+        options = ", ".join(supported_games())
+        raise ValueError(f"Unsupported game '{game_name}'. Available games: {options}")
+    return _TRAIN_CONFIGS[normalized]
+
+
+def get_runtime_config(game_name: str | None = None) -> RuntimeConfig:
+    normalized = _normalize_game_name(game_name or GAME_NAME)
+    if normalized not in _RUNTIME_CONFIGS:
+        options = ", ".join(supported_games())
+        raise ValueError(f"Unsupported game '{game_name}'. Available games: {options}")
+    return _RUNTIME_CONFIGS[normalized]
+
+
+def get_logging_config(game_name: str | None = None) -> LoggingConfig:
+    normalized = _normalize_game_name(game_name or GAME_NAME)
+    if normalized not in _LOGGING_CONFIGS:
+        options = ", ".join(supported_games())
+        raise ValueError(f"Unsupported game '{game_name}'. Available games: {options}")
+    return _LOGGING_CONFIGS[normalized]
+
+
+_ACTIVE_RULE = get_rule_config(GAME_NAME)
+_ACTIVE_SEARCH = get_search_config(GAME_NAME)
+_ACTIVE_MODEL = get_model_config(GAME_NAME)
+_ACTIVE_TRAIN = get_train_config(GAME_NAME)
+_ACTIVE_RUNTIME = get_runtime_config(GAME_NAME)
+_ACTIVE_LOGGING = get_logging_config(GAME_NAME)
+
+CHANNELS = _ACTIVE_MODEL.channels
+NUM_RES = _ACTIVE_MODEL.num_res
+
+BUFFER_SIZE = _ACTIVE_TRAIN.buffer_size
+BATCH_SIZE = _ACTIVE_TRAIN.batch_size
+TRAIN_UPDATES = _ACTIVE_TRAIN.train_updates
+LEARNING_RATE = _ACTIVE_TRAIN.learning_rate
+WEIGHT_DECAY = _ACTIVE_TRAIN.weight_decay
+EVAL_THRESHOLD = _ACTIVE_TRAIN.eval_threshold  # kept for compatibility
+SELFPLAY_GAMES = _ACTIVE_TRAIN.selfplay_games
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL_DIR = "models"
-DATA_DIR = "data"
+MODEL_DIR = _ACTIVE_RUNTIME.model_dir
+DATA_DIR = _ACTIVE_RUNTIME.data_dir
 
-LOG_DIR = "logs"
-LOG_LEVEL = os.getenv("AZ_LOG_LEVEL", "INFO")
-LOG_NAME = "alphazero"
-TB_DIR = "tb"
+LOG_DIR = _ACTIVE_RUNTIME.log_dir
+TB_DIR = _ACTIVE_RUNTIME.tb_dir
+LOG_LEVEL = _ACTIVE_LOGGING.level
+LOG_NAME = _ACTIVE_LOGGING.name
 
 
-# Legacy aliases for scripts that still import fixed Gomoku constants.
-_GOMOKU_RULE = get_rule_config("gomoku")
-BOARD_SIZE = _GOMOKU_RULE.board_size
-N_IN_ROW = _GOMOKU_RULE.n_in_row or 5
-HISTORY_STEPS = _GOMOKU_RULE.history_steps
-INPUT_PLANES = _GOMOKU_RULE.input_planes
+# Legacy aliases for scripts importing scalar constants.
+BOARD_SIZE = _ACTIVE_RULE.board_size
+N_IN_ROW = _ACTIVE_RULE.n_in_row or 5
+HISTORY_STEPS = _ACTIVE_RULE.history_steps
+INPUT_PLANES = _ACTIVE_RULE.input_planes
 
-_GOMOKU_SEARCH = get_search_config("gomoku")
-MCTS_SIMS = _GOMOKU_SEARCH.mcts_sims
-CPUCT = _GOMOKU_SEARCH.cpuct
-DIRICHLET_ALPHA = _GOMOKU_SEARCH.dirichlet_alpha
-DIRICHLET_EPS = _GOMOKU_SEARCH.dirichlet_eps
-SELFPLAY_TEMPERATURE = _GOMOKU_SEARCH.selfplay_temperature
-N_TEMP_MOVES = _GOMOKU_SEARCH.n_temp_moves
-EVAL_GAMES = _GOMOKU_SEARCH.eval_games
+MCTS_SIMS = _ACTIVE_SEARCH.mcts_sims
+CPUCT = _ACTIVE_SEARCH.cpuct
+DIRICHLET_ALPHA = _ACTIVE_SEARCH.dirichlet_alpha
+DIRICHLET_EPS = _ACTIVE_SEARCH.dirichlet_eps
+SELFPLAY_TEMPERATURE = _ACTIVE_SEARCH.selfplay_temperature
+N_TEMP_MOVES = _ACTIVE_SEARCH.n_temp_moves
+EVAL_GAMES = _ACTIVE_SEARCH.eval_games

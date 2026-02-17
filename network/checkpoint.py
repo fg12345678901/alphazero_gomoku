@@ -50,7 +50,12 @@ def load_checkpoint(path: str, map_location: str | torch.device):
     return parse_checkpoint_payload(payload)
 
 
-def validate_checkpoint_meta(meta: dict[str, Any] | None, expected_spec: GameSpec) -> None:
+def validate_checkpoint_meta(
+    meta: dict[str, Any] | None,
+    expected_spec: GameSpec,
+    expected_channels: int | None = None,
+    expected_blocks: int | None = None,
+) -> None:
     if not meta:
         return
 
@@ -70,6 +75,14 @@ def validate_checkpoint_meta(meta: dict[str, Any] | None, expected_spec: GameSpe
     if "input_planes" in meta and int(meta["input_planes"]) != expected_spec.input_planes:
         mismatch_messages.append(
             f"input_planes checkpoint={meta['input_planes']} runtime={expected_spec.input_planes}"
+        )
+    if expected_channels is not None and "channels" in meta and int(meta["channels"]) != int(expected_channels):
+        mismatch_messages.append(
+            f"channels checkpoint={meta['channels']} runtime={expected_channels}"
+        )
+    if expected_blocks is not None and "blocks" in meta and int(meta["blocks"]) != int(expected_blocks):
+        mismatch_messages.append(
+            f"blocks checkpoint={meta['blocks']} runtime={expected_blocks}"
         )
 
     if mismatch_messages:

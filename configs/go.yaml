@@ -11,3 +11,26 @@ search:
   selfplay_temperature: 1.0
   n_temp_moves: 30
   eval_games: 100
+
+model:
+  channels: 256
+  num_res: 15
+
+train:
+  buffer_size: 800000
+  batch_size: 512
+  train_updates: 8000
+  learning_rate: 0.0008
+  weight_decay: 0.0001
+  eval_threshold: 0.55
+  selfplay_games: 100
+
+runtime:
+  model_dir: models
+  data_dir: data
+  log_dir: logs
+  tb_dir: tb
+
+logging:
+  level: INFO
+  name: alphazero

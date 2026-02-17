@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from config import DEVICE, GAME_NAME, get_search_config
+from config import DEVICE, GAME_NAME, get_model_config, get_search_config
 from games.registry import available_games, create_game, normalize_game_name
 from mcts.mcts import MCTS
 from network.checkpoint import (
@@ -161,8 +161,14 @@ def _build_mcts(game_name: str, game, net, sims_override: int | None) -> MCTS:
     )
 
 
-def _load_net(game, model_path: str | None):
-    net = build_model_for_game(game, device=DEVICE)
+def _load_net(game_name: str, game, model_path: str | None):
+    model_cfg = get_model_config(game_name)
+    net = build_model_for_game(
+        game,
+        device=DEVICE,
+        channels=model_cfg.channels,
+        blocks=model_cfg.num_res,
+    )
     descriptor = "random(init)"
 
     if model_path:
@@ -170,7 +176,12 @@ def _load_net(game, model_path: str | None):
         if not path.exists():
             raise FileNotFoundError(f"Model not found: {path}")
         state_dict, meta = load_checkpoint(str(path), map_location=DEVICE)
-        validate_checkpoint_meta(meta, game.getGameSpec())
+        validate_checkpoint_meta(
+            meta,
+            game.getGameSpec(),
+            expected_channels=model_cfg.channels,
+            expected_blocks=model_cfg.num_res,
+        )
         net.load_state_dict(state_dict)
         descriptor = str(path)
 
@@ -310,11 +321,11 @@ def main() -> None:
         parser.error(str(exc))
 
     try:
-        net1, desc1 = _load_net(game, args.model1)
+        net1, desc1 = _load_net(game_name, game, args.model1)
         model2_path = args.model2
         if model2_path is None and not args.human and args.model1 is not None:
             model2_path = args.model1
-        net2, desc2 = _load_net(game, model2_path)
+        net2, desc2 = _load_net(game_name, game, model2_path)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
 
