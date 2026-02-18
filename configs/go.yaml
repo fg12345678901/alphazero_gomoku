@@ -17,12 +17,12 @@ model:
   num_res: 15
 
 train:
-  buffer_size: 800000
+  buffer_size: 1800000
   batch_size: 512
-  train_updates: 8000
+  train_updates: 18000
   learning_rate: 0.0008
   weight_decay: 0.0001
-  selfplay_games: 500
+  selfplay_games: 200
 
 runtime:
   model_dir: models

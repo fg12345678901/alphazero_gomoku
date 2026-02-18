@@ -1,242 +1,122 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AlphaZero Web UI</title>
-    <style>
-        :root {
-            --bg: #0f172a;
-            --panel: #111827;
-            --line: #334155;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --accent: #06b6d4;
-            --warn: #f59e0b;
-            --black: #111827;
-            --white: #f8fafc;
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: radial-gradient(circle at top, #1e293b, var(--bg));
-            color: var(--text);
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 16px;
-            display: grid;
-            gap: 12px;
-        }
-        .panel {
-            background: color-mix(in oklab, var(--panel) 94%, black 6%);
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 12px;
-        }
-        .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            align-items: end;
-        }
-        label {
-            display: block;
-            font-size: 12px;
-            color: var(--muted);
-            margin-bottom: 4px;
-        }
-        select, input, button {
-            width: 100%;
-            padding: 8px 10px;
-            border-radius: 8px;
-            border: 1px solid var(--line);
-            background: #0b1220;
-            color: var(--text);
-        }
-        button {
-            cursor: pointer;
-            background: #0b1220;
-        }
-        button.primary {
-            border-color: #0ea5e9;
-            background: #0c4a6e;
-        }
-        button.warn {
-            border-color: #f59e0b;
-            color: #fde68a;
-        }
-        button:disabled {
-            opacity: 0.45;
-            cursor: not-allowed;
-        }
-        .main {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) 320px;
-            gap: 12px;
-        }
-        .board-wrap {
-            overflow: auto;
-        }
-        table.board {
-            border-collapse: collapse;
-            margin: 0 auto;
-        }
-        table.board th,
-        table.board td {
-            border: 1px solid var(--line);
-            width: 36px;
-            height: 36px;
-            min-width: 36px;
-            text-align: center;
-            vertical-align: middle;
-            position: relative;
-        }
-        table.board th {
-            color: var(--muted);
-            font-size: 12px;
-            font-weight: 500;
-            background: #0b1220;
-        }
-        table.board td {
-            background: #1f2937;
-            user-select: none;
-        }
-        table.board td.empty { cursor: pointer; }
-        table.board td.best {
-            outline: 2px solid var(--accent);
-            outline-offset: -2px;
-        }
-        .stone {
-            font-size: 20px;
-            line-height: 1;
-        }
-        .stone.black { color: #111; text-shadow: 0 0 4px rgba(255,255,255,0.15); }
-        .stone.white { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.5); }
-        .prob {
-            position: absolute;
-            right: 2px;
-            bottom: 2px;
-            font-size: 10px;
-            color: #7dd3fc;
-            pointer-events: none;
-        }
-        .meta {
-            display: grid;
-            gap: 8px;
-            font-size: 14px;
-        }
-        .meta .item { color: var(--muted); }
-        .meta strong { color: var(--text); }
-        .status {
-            min-height: 22px;
-            color: var(--accent);
-            font-size: 14px;
-        }
-        .status.error { color: #fca5a5; }
-        .history {
-            max-height: 460px;
-            overflow: auto;
-            padding-left: 18px;
-            margin: 0;
-        }
-        .history li {
-            margin: 2px 0;
-            font-size: 13px;
-            color: #cbd5e1;
-        }
-        @media (max-width: 980px) {
-            .main { grid-template-columns: 1fr; }
-            table.board th,
-            table.board td {
-                width: 32px;
-                height: 32px;
-                min-width: 32px;
-            }
-        }
-    </style>
+    <title>AlphaZero Arena Console</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
-    <div class="container">
-        <div class="panel">
-            <div class="controls">
-                <div>
-                    <label for="gameSelect">游戏</label>
+    <div class="stage-bg" aria-hidden="true"></div>
+    <div class="app-shell">
+        <header class="hero panel">
+            <p class="hero-kicker">Self-Play Monitor</p>
+            <h1 class="hero-title">AlphaZero Arena Console</h1>
+            <p class="hero-subtitle">Go / Gomoku interactive board, policy heatmap, and quick control loop.</p>
+        </header>
+
+        <section class="panel controls">
+            <div class="control-grid">
+                <label class="field">
+                    <span>游戏</span>
                     <select id="gameSelect"></select>
-                </div>
-                <div>
-                    <label for="modeSelect">模式</label>
+                </label>
+
+                <label class="field">
+                    <span>模式</span>
                     <select id="modeSelect">
                         <option value="human_ai">人机对战</option>
                         <option value="human_human">人人对战</option>
                         <option value="ai_ai">机机对战</option>
                     </select>
-                </div>
-                <div>
-                    <label for="humanColor">执子</label>
+                </label>
+
+                <label class="field">
+                    <span>执子</span>
                     <select id="humanColor">
                         <option value="1">黑方</option>
                         <option value="-1">白方</option>
                     </select>
-                </div>
-                <div>
-                    <label for="simsInput">MCTS 模拟数</label>
-                    <input id="simsInput" type="number" min="1" value="200" />
-                </div>
-                <div>
-                    <label for="modelSelect">模型</label>
+                </label>
+
+                <label class="field">
+                    <span>MCTS 模拟数</span>
+                    <input id="simsInput" type="number" min="1" value="100" />
+                </label>
+
+                <label class="field">
+                    <span>模型</span>
                     <select id="modelSelect"></select>
-                </div>
-                <div>
-                    <label for="showProb">显示策略热力</label>
+                </label>
+
+                <label class="field">
+                    <span>策略热力</span>
                     <select id="showProb">
-                        <option value="1">开</option>
-                        <option value="0">关</option>
+                        <option value="1">显示</option>
+                        <option value="0">隐藏</option>
                     </select>
-                </div>
-                <div>
-                    <button id="startBtn" class="primary">开始/重开</button>
-                </div>
-                <div>
-                    <button id="undoBtn">悔棋</button>
-                </div>
-                <div>
-                    <button id="passBtn" class="warn">PASS</button>
-                </div>
-                <div>
-                    <button id="aiStepBtn">AI 下一步</button>
-                </div>
-                <div>
-                    <button id="analyzeBtn">分析当前局面</button>
-                </div>
-            </div>
-            <div id="status" class="status"></div>
-        </div>
-
-        <div class="main">
-            <div class="panel board-wrap">
-                <div id="boardRoot"></div>
+                </label>
             </div>
 
-            <div class="panel">
-                <div class="meta">
-                    <div class="item">当前游戏: <strong id="metaGame">-</strong></div>
-                    <div class="item">当前走子: <strong id="metaTurn">-</strong></div>
-                    <div class="item">模型: <strong id="metaModel">-</strong></div>
-                    <div class="item">Go PASS 概率: <strong id="metaPassProb">-</strong></div>
-                    <div class="item">最新价值: <strong id="metaValue">-</strong></div>
-                    <div class="item">结果: <strong id="metaWinner">进行中</strong></div>
-                </div>
-                <hr style="border-color: var(--line); opacity: 0.5; margin: 12px 0;" />
-                <h3 style="margin: 0 0 8px 0; font-size: 14px; color: var(--muted);">走子记录</h3>
-                <ol id="historyList" class="history"></ol>
+            <div class="action-row">
+                <button id="startBtn" class="btn btn-primary">开始 / 重开</button>
+                <button id="undoBtn" class="btn">悔棋</button>
+                <button id="passBtn" class="btn btn-warn">PASS</button>
+                <button id="aiStepBtn" class="btn">AI 下一步</button>
+                <button id="analyzeBtn" class="btn btn-ghost">分析局面</button>
             </div>
-        </div>
+
+            <div id="status" class="status-line" aria-live="polite"></div>
+        </section>
+
+        <main class="workspace">
+            <section class="panel board-panel">
+                <div class="board-head">
+                    <div>
+                        <h2>棋盘</h2>
+                        <p id="boardHint">点击落子；Go 支持 PASS。</p>
+                    </div>
+                </div>
+                <div id="boardRoot" class="board-root"></div>
+            </section>
+
+            <aside class="panel side-panel">
+                <h2>对局信息</h2>
+                <div class="meta-grid">
+                    <div class="meta-item">
+                        <span class="meta-label">当前游戏</span>
+                        <strong id="metaGame">-</strong>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">当前走子</span>
+                        <strong id="metaTurn">-</strong>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">模型</span>
+                        <strong id="metaModel">-</strong>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">PASS 概率</span>
+                        <strong id="metaPassProb">-</strong>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">最新价值</span>
+                        <strong id="metaValue">-</strong>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">结果</span>
+                        <strong id="metaWinner">进行中</strong>
+                    </div>
+                </div>
+
+                <div class="history-wrap">
+                    <h3>走子记录</h3>
+                    <ol id="historyList" class="history"></ol>
+                </div>
+            </aside>
+        </main>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script>
         const state = {
             game: null,
@@ -257,27 +137,43 @@
         };
 
         const el = {
-            status: document.getElementById('status'),
-            boardRoot: document.getElementById('boardRoot'),
-            gameSelect: document.getElementById('gameSelect'),
-            modeSelect: document.getElementById('modeSelect'),
-            humanColor: document.getElementById('humanColor'),
-            simsInput: document.getElementById('simsInput'),
-            modelSelect: document.getElementById('modelSelect'),
-            showProb: document.getElementById('showProb'),
-            startBtn: document.getElementById('startBtn'),
-            undoBtn: document.getElementById('undoBtn'),
-            passBtn: document.getElementById('passBtn'),
-            aiStepBtn: document.getElementById('aiStepBtn'),
-            analyzeBtn: document.getElementById('analyzeBtn'),
-            historyList: document.getElementById('historyList'),
-            metaGame: document.getElementById('metaGame'),
-            metaTurn: document.getElementById('metaTurn'),
-            metaModel: document.getElementById('metaModel'),
-            metaPassProb: document.getElementById('metaPassProb'),
-            metaValue: document.getElementById('metaValue'),
-            metaWinner: document.getElementById('metaWinner'),
+            status: document.getElementById("status"),
+            boardRoot: document.getElementById("boardRoot"),
+            boardHint: document.getElementById("boardHint"),
+            gameSelect: document.getElementById("gameSelect"),
+            modeSelect: document.getElementById("modeSelect"),
+            humanColor: document.getElementById("humanColor"),
+            simsInput: document.getElementById("simsInput"),
+            modelSelect: document.getElementById("modelSelect"),
+            showProb: document.getElementById("showProb"),
+            startBtn: document.getElementById("startBtn"),
+            undoBtn: document.getElementById("undoBtn"),
+            passBtn: document.getElementById("passBtn"),
+            aiStepBtn: document.getElementById("aiStepBtn"),
+            analyzeBtn: document.getElementById("analyzeBtn"),
+            historyList: document.getElementById("historyList"),
+            metaGame: document.getElementById("metaGame"),
+            metaTurn: document.getElementById("metaTurn"),
+            metaModel: document.getElementById("metaModel"),
+            metaPassProb: document.getElementById("metaPassProb"),
+            metaValue: document.getElementById("metaValue"),
+            metaWinner: document.getElementById("metaWinner"),
         };
+
+        function parsePositiveInt(raw) {
+            if (raw === null || raw === undefined) {
+                return null;
+            }
+            const text = String(raw).trim();
+            if (!text) {
+                return null;
+            }
+            const value = Number(text);
+            if (!Number.isFinite(value) || value <= 0) {
+                return null;
+            }
+            return Math.floor(value);
+        }
 
         function setBusy(flag) {
             state.busy = flag;
@@ -292,34 +188,62 @@
                 el.humanColor,
                 el.simsInput,
                 el.modelSelect,
-            ].forEach(node => node.disabled = flag);
+                el.showProb,
+            ].forEach((node) => {
+                node.disabled = flag;
+            });
         }
 
-        function setStatus(msg, isError = false) {
-            el.status.textContent = msg || '';
-            el.status.classList.toggle('error', Boolean(isError));
+        function setStatus(message, isError = false) {
+            el.status.textContent = message || "";
+            el.status.classList.toggle("error", Boolean(isError));
         }
 
-        async function apiGet(url) {
-            const res = await axios.get(url);
-            return res.data;
-        }
+        async function requestJson(url, options = {}) {
+            const init = {
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(options.headers || {}),
+                },
+                ...options,
+            };
+            const response = await fetch(url, init);
+            const text = await response.text();
+            let payload = {};
 
-        async function apiPost(url, payload) {
-            const res = await axios.post(url, payload || {});
-            return res.data;
+            if (text) {
+                try {
+                    payload = JSON.parse(text);
+                } catch (err) {
+                    payload = { error: text };
+                }
+            }
+
+            if (!response.ok) {
+                throw new Error(payload.error || `${response.status} ${response.statusText}`);
+            }
+
+            return payload;
         }
 
         function playerText(player) {
-            if (player === 1) return '黑方';
-            if (player === -1) return '白方';
+            if (player === 1) return "黑方";
+            if (player === -1) return "白方";
             return String(player);
         }
 
         function winnerText(winner) {
-            if (winner === null || winner === undefined) return '进行中';
-            if (winner === 0) return '平局';
-            return winner === 1 ? '黑方胜' : '白方胜';
+            if (winner === null || winner === undefined) return "进行中";
+            if (winner === 0) return "平局";
+            return winner === 1 ? "黑方胜" : "白方胜";
+        }
+
+        function updateModeControls() {
+            const mode = state.mode || el.modeSelect.value;
+            const aiMode = mode === "ai_ai";
+            const humanMode = mode !== "ai_ai";
+            el.aiStepBtn.style.display = aiMode ? "inline-flex" : "none";
+            el.humanColor.disabled = !humanMode || state.busy;
         }
 
         function applyPayload(data) {
@@ -329,14 +253,17 @@
             state.passSupported = Boolean(data.pass_supported);
             state.board = data.board || [];
             state.policy = data.policy || [];
-            state.passProb = data.pass_prob || 0;
+            state.passProb = Number(data.pass_prob || 0);
             state.history = data.history || [];
             state.currentPlayer = data.current_player;
             state.winner = data.winner;
-            state.model = data.model || 'random(init)';
+            state.model = data.model || "random(init)";
             state.mode = data.mode || el.modeSelect.value;
             state.humanPlayer = data.human_player ?? parseInt(el.humanColor.value, 10);
             state.valueCurve = data.value_curve || [];
+
+            el.modeSelect.value = state.mode;
+            el.humanColor.value = String(state.humanPlayer);
 
             renderBoard();
             renderHistory();
@@ -344,42 +271,45 @@
         }
 
         function renderMeta() {
-            el.metaGame.textContent = state.game || '-';
+            el.metaGame.textContent = state.game || "-";
             el.metaTurn.textContent = playerText(state.currentPlayer);
-            el.metaModel.textContent = state.model || '-';
-            el.metaPassProb.textContent = state.passSupported ? (state.passProb * 100).toFixed(2) + '%' : 'N/A';
+            el.metaModel.textContent = state.model || "-";
+            el.metaPassProb.textContent = state.passSupported ? `${(state.passProb * 100).toFixed(2)}%` : "N/A";
             const latestValue = state.valueCurve.length ? state.valueCurve[state.valueCurve.length - 1] : 0;
             el.metaValue.textContent = Number(latestValue).toFixed(4);
             el.metaWinner.textContent = winnerText(state.winner);
 
-            el.passBtn.style.display = state.passSupported ? 'block' : 'none';
-            el.aiStepBtn.style.display = (el.modeSelect.value === 'ai_ai') ? 'block' : 'none';
+            el.passBtn.style.display = state.passSupported ? "inline-flex" : "none";
+            el.boardHint.textContent = state.passSupported
+                ? "点击棋盘落子；Go 支持 PASS。"
+                : "点击棋盘落子。";
+            updateModeControls();
         }
 
         function renderHistory() {
-            el.historyList.innerHTML = '';
-            state.history.forEach((m, idx) => {
-                const li = document.createElement('li');
-                li.textContent = `${idx + 1}. ${m}`;
+            el.historyList.innerHTML = "";
+            state.history.forEach((move, index) => {
+                const li = document.createElement("li");
+                li.textContent = `${index + 1}. ${move}`;
                 el.historyList.appendChild(li);
             });
         }
 
         function shouldAcceptHumanClick() {
             if (state.busy || state.winner !== null) return false;
-            const mode = el.modeSelect.value;
-            if (mode === 'human_human') return true;
-            if (mode === 'human_ai') return state.currentPlayer === parseInt(el.humanColor.value, 10);
+            const mode = state.mode || el.modeSelect.value;
+            if (mode === "human_human") return true;
+            if (mode === "human_ai") return state.currentPlayer === parseInt(el.humanColor.value, 10);
             return false;
         }
 
         function renderBoard() {
-            if (!state.board || !state.board.length) {
-                el.boardRoot.innerHTML = '<div>暂无棋盘</div>';
+            if (!state.board || state.board.length === 0) {
+                el.boardRoot.innerHTML = '<div class="empty-board">暂无棋盘</div>';
                 return;
             }
 
-            const showProb = el.showProb.value === '1';
+            const showProb = el.showProb.value === "1";
             let best = { x: -1, y: -1, p: -1 };
             for (let x = 0; x < state.size; x++) {
                 for (let y = 0; y < state.size; y++) {
@@ -389,114 +319,123 @@
                 }
             }
 
-            const table = document.createElement('table');
-            table.className = 'board';
+            const table = document.createElement("table");
+            table.className = "board";
 
-            const head = document.createElement('tr');
-            const corner = document.createElement('th');
-            corner.textContent = '';
-            head.appendChild(corner);
+            const headRow = document.createElement("tr");
+            const corner = document.createElement("th");
+            corner.textContent = "";
+            corner.className = "corner";
+            headRow.appendChild(corner);
+
             for (let y = 0; y < state.size; y++) {
-                const th = document.createElement('th');
+                const th = document.createElement("th");
                 th.textContent = state.columns[y] || String(y + 1);
-                head.appendChild(th);
+                headRow.appendChild(th);
             }
-            table.appendChild(head);
+            table.appendChild(headRow);
 
             for (let x = 0; x < state.size; x++) {
-                const tr = document.createElement('tr');
-                const rowTh = document.createElement('th');
-                rowTh.textContent = state.game === 'go' ? String(state.size - x) : String(x + 1);
+                const tr = document.createElement("tr");
+                const rowTh = document.createElement("th");
+                rowTh.textContent = state.game === "go" ? String(state.size - x) : String(x + 1);
                 tr.appendChild(rowTh);
 
                 for (let y = 0; y < state.size; y++) {
-                    const td = document.createElement('td');
-                    const v = state.board[x][y];
+                    const td = document.createElement("td");
+                    const stoneValue = state.board[x][y];
 
-                    if (v === 0) td.classList.add('empty');
-                    if (x === best.x && y === best.y && best.p > 0) td.classList.add('best');
+                    if (stoneValue === 0) td.classList.add("empty");
+                    if (x === best.x && y === best.y && best.p > 0) td.classList.add("best");
 
-                    if (v === 1 || v === -1) {
-                        const stone = document.createElement('span');
-                        stone.className = `stone ${v === 1 ? 'black' : 'white'}`;
-                        stone.textContent = v === 1 ? '●' : '○';
+                    if (stoneValue === 1 || stoneValue === -1) {
+                        const stone = document.createElement("span");
+                        stone.className = `stone ${stoneValue === 1 ? "black" : "white"}`;
+                        stone.textContent = "●";
                         td.appendChild(stone);
                     } else if (showProb) {
                         const p = (state.policy[x] && state.policy[x][y]) ? state.policy[x][y] : 0;
                         if (p > 0.005) {
-                            const prob = document.createElement('span');
-                            prob.className = 'prob';
-                            prob.textContent = (p * 100).toFixed(1);
+                            const prob = document.createElement("span");
+                            prob.className = "prob";
+                            prob.textContent = `${(p * 100).toFixed(1)}%`;
                             td.appendChild(prob);
                         }
                     }
 
-                    td.addEventListener('click', () => onCellClick(x, y));
+                    td.addEventListener("click", () => onCellClick(x, y));
                     tr.appendChild(td);
                 }
 
                 table.appendChild(tr);
             }
 
-            el.boardRoot.innerHTML = '';
+            el.boardRoot.innerHTML = "";
             el.boardRoot.appendChild(table);
         }
 
         async function loadGames() {
-            const data = await apiGet('/games');
-            el.gameSelect.innerHTML = '';
-            (data.games || []).forEach(g => {
-                const opt = document.createElement('option');
-                opt.value = g;
-                opt.textContent = g;
-                if (g === data.current) opt.selected = true;
+            const payload = await requestJson("/games");
+            el.gameSelect.innerHTML = "";
+            (payload.games || []).forEach((gameName) => {
+                const opt = document.createElement("option");
+                opt.value = gameName;
+                opt.textContent = gameName;
+                if (gameName === payload.current) opt.selected = true;
                 el.gameSelect.appendChild(opt);
             });
         }
 
         async function loadModels(gameName) {
-            const data = await apiGet(`/models?game=${encodeURIComponent(gameName)}`);
-            el.modelSelect.innerHTML = '';
+            const payload = await requestJson(`/models?game=${encodeURIComponent(gameName)}`);
+            el.modelSelect.innerHTML = "";
 
-            const latest = document.createElement('option');
-            latest.value = 'latest';
-            latest.textContent = 'latest';
+            const latest = document.createElement("option");
+            latest.value = "latest";
+            latest.textContent = "latest";
             el.modelSelect.appendChild(latest);
 
-            const randomOpt = document.createElement('option');
-            randomOpt.value = 'random';
-            randomOpt.textContent = 'random(init)';
+            const randomOpt = document.createElement("option");
+            randomOpt.value = "random";
+            randomOpt.textContent = "random(init)";
             el.modelSelect.appendChild(randomOpt);
 
-            (data.models || []).forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                if (m === data.current) opt.selected = true;
+            (payload.models || []).forEach((modelName) => {
+                const opt = document.createElement("option");
+                opt.value = modelName;
+                opt.textContent = modelName;
+                if (modelName === payload.current) opt.selected = true;
                 el.modelSelect.appendChild(opt);
             });
 
-            if (!data.models || data.models.length === 0) {
-                el.modelSelect.value = 'random';
+            if (!payload.models || payload.models.length === 0) {
+                el.modelSelect.value = "random";
             }
         }
 
         async function startGame() {
             setBusy(true);
-            setStatus('正在启动...');
+            setStatus("正在启动...");
             try {
-                const payload = await apiPost('/start', {
+                const sims = parsePositiveInt(el.simsInput.value);
+                const payload = {
                     game: el.gameSelect.value,
                     mode: el.modeSelect.value,
                     human_player: parseInt(el.humanColor.value, 10),
-                    mcts_sims: parseInt(el.simsInput.value, 10),
                     model: el.modelSelect.value,
+                };
+                if (sims !== null) {
+                    payload.mcts_sims = sims;
+                }
+
+                const data = await requestJson("/start", {
+                    method: "POST",
+                    body: JSON.stringify(payload),
                 });
-                applyPayload(payload);
-                setStatus('已启动');
+                applyPayload(data);
+                setStatus("已启动");
             } catch (err) {
-                const msg = err?.response?.data?.error || err.message;
-                setStatus(msg, true);
+                setStatus(err.message || "启动失败", true);
             } finally {
                 setBusy(false);
             }
@@ -505,14 +444,16 @@
         async function onCellClick(x, y) {
             if (!shouldAcceptHumanClick()) return;
             setBusy(true);
-            setStatus('落子中...');
+            setStatus("落子中...");
             try {
-                const payload = await apiPost('/move', { x, y });
+                const payload = await requestJson("/move", {
+                    method: "POST",
+                    body: JSON.stringify({ x, y }),
+                });
                 applyPayload(payload);
-                setStatus('');
+                setStatus("");
             } catch (err) {
-                const msg = err?.response?.data?.error || err.message;
-                setStatus(msg, true);
+                setStatus(err.message || "落子失败", true);
             } finally {
                 setBusy(false);
             }
@@ -521,14 +462,16 @@
         async function passMove() {
             if (!state.passSupported || !shouldAcceptHumanClick()) return;
             setBusy(true);
-            setStatus('PASS...');
+            setStatus("PASS...");
             try {
-                const payload = await apiPost('/move', { pass: true });
+                const payload = await requestJson("/move", {
+                    method: "POST",
+                    body: JSON.stringify({ pass: true }),
+                });
                 applyPayload(payload);
-                setStatus('');
+                setStatus("");
             } catch (err) {
-                const msg = err?.response?.data?.error || err.message;
-                setStatus(msg, true);
+                setStatus(err.message || "PASS 失败", true);
             } finally {
                 setBusy(false);
             }
@@ -536,14 +479,16 @@
 
         async function undoMove() {
             setBusy(true);
-            setStatus('悔棋中...');
+            setStatus("悔棋中...");
             try {
-                const payload = await apiPost('/undo', {});
+                const payload = await requestJson("/undo", {
+                    method: "POST",
+                    body: JSON.stringify({}),
+                });
                 applyPayload(payload);
-                setStatus('');
+                setStatus("");
             } catch (err) {
-                const msg = err?.response?.data?.error || err.message;
-                setStatus(msg, true);
+                setStatus(err.message || "悔棋失败", true);
             } finally {
                 setBusy(false);
             }
@@ -551,14 +496,16 @@
 
         async function aiStep() {
             setBusy(true);
-            setStatus('AI 思考中...');
+            setStatus("AI 思考中...");
             try {
-                const payload = await apiPost('/ai_step', {});
+                const payload = await requestJson("/ai_step", {
+                    method: "POST",
+                    body: JSON.stringify({}),
+                });
                 applyPayload(payload);
-                setStatus('');
+                setStatus("");
             } catch (err) {
-                const msg = err?.response?.data?.error || err.message;
-                setStatus(msg, true);
+                setStatus(err.message || "AI 下一步失败", true);
             } finally {
                 setBusy(false);
             }
@@ -566,17 +513,26 @@
 
         async function analyze() {
             setBusy(true);
-            setStatus('分析中...');
+            setStatus("分析中...");
             try {
-                const res = await apiPost('/analyze', { sims: parseInt(el.simsInput.value, 10) });
-                state.policy = res.policy || state.policy;
-                state.passProb = res.pass_prob || 0;
+                const sims = parsePositiveInt(el.simsInput.value);
+                const body = {};
+                if (sims !== null) {
+                    body.sims = sims;
+                }
+
+                const payload = await requestJson("/analyze", {
+                    method: "POST",
+                    body: JSON.stringify(body),
+                });
+
+                state.policy = payload.policy || state.policy;
+                state.passProb = Number(payload.pass_prob || 0);
                 renderBoard();
                 renderMeta();
-                setStatus(`分析价值: ${Number(res.value || 0).toFixed(4)}`);
+                setStatus(`分析价值: ${Number(payload.value || 0).toFixed(4)}`);
             } catch (err) {
-                const msg = err?.response?.data?.error || err.message;
-                setStatus(msg, true);
+                setStatus(err.message || "分析失败", true);
             } finally {
                 setBusy(false);
             }
@@ -587,16 +543,14 @@
         }
 
         function attachEvents() {
-            el.startBtn.addEventListener('click', startGame);
-            el.undoBtn.addEventListener('click', undoMove);
-            el.passBtn.addEventListener('click', passMove);
-            el.aiStepBtn.addEventListener('click', aiStep);
-            el.analyzeBtn.addEventListener('click', analyze);
-            el.gameSelect.addEventListener('change', onGameChange);
-            el.modeSelect.addEventListener('change', () => {
-                el.aiStepBtn.style.display = (el.modeSelect.value === 'ai_ai') ? 'block' : 'none';
-            });
-            el.showProb.addEventListener('change', renderBoard);
+            el.startBtn.addEventListener("click", startGame);
+            el.undoBtn.addEventListener("click", undoMove);
+            el.passBtn.addEventListener("click", passMove);
+            el.aiStepBtn.addEventListener("click", aiStep);
+            el.analyzeBtn.addEventListener("click", analyze);
+            el.gameSelect.addEventListener("change", onGameChange);
+            el.modeSelect.addEventListener("change", updateModeControls);
+            el.showProb.addEventListener("change", renderBoard);
         }
 
         async function bootstrap() {
@@ -606,8 +560,8 @@
             await startGame();
         }
 
-        bootstrap().catch(err => {
-            setStatus(err.message || '初始化失败', true);
+        bootstrap().catch((err) => {
+            setStatus(err.message || "初始化失败", true);
         });
     </script>
 </body>

@@ -246,8 +246,20 @@ def _create_mcts(sims: int | None = None) -> MCTS:
     )
 
 
-def _active_model_cfg():
-    return get_model_config(ACTIVE_GAME_NAME)
+def _active_model_cfg(game_name: str | None = None):
+    return get_model_config(normalize_game_name(game_name or ACTIVE_GAME_NAME))
+
+
+def _parse_positive_int(value) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    parsed = int(text)
+    if parsed <= 0:
+        raise ValueError("must be a positive integer")
+    return parsed
 
 
 def _reset_random_network() -> None:
@@ -314,22 +326,37 @@ def _activate_game(game_name: str) -> None:
     if GAME is not None and ACTIVE_GAME_NAME == normalized:
         return
 
-    GAME = create_game(normalized)
-    model_cfg = _active_model_cfg()
-    NET = build_model_for_game(
-        GAME,
+    game_obj = create_game(normalized)
+    model_cfg = _active_model_cfg(normalized)
+    net = build_model_for_game(
+        game_obj,
         device=DEVICE,
         channels=model_cfg.channels,
         blocks=model_cfg.num_res,
     )
-    NET.eval()
+    net.eval()
+    paths = resolve_runtime_paths(normalized)
+    _ensure_paths(paths)
 
     ACTIVE_GAME_NAME = normalized
-    PATHS = resolve_runtime_paths(ACTIVE_GAME_NAME)
-    _ensure_paths(PATHS)
+    GAME = game_obj
+    NET = net
+    PATHS = paths
+    CURRENT_MODEL_PATH = _latest_model_for_game(normalized)
+    _LOADED_MODEL_PATH = None
+
+
+def _set_startup_model_pointer() -> None:
+    global CURRENT_MODEL_PATH, _LOADED_MODEL_PATH
 
     CURRENT_MODEL_PATH = _latest_model_for_game(ACTIVE_GAME_NAME)
     _LOADED_MODEL_PATH = None
+
+
+def _refresh_game_runtime() -> None:
+    global PATHS
+    PATHS = resolve_runtime_paths(ACTIVE_GAME_NAME)
+    _ensure_paths(PATHS)
 
 
 def _recompute_policy(append_curve: bool) -> None:
@@ -468,8 +495,10 @@ def start_game():
     game_name = normalize_game_name(data.get("game", ACTIVE_GAME_NAME))
     mode = data.get("mode", "human_ai")
     human_player = int(data.get("human_player", 1))
-    sims = data.get("mcts_sims")
-    sims = int(sims) if sims is not None and str(sims).strip() else None
+    try:
+        sims = _parse_positive_int(data.get("mcts_sims"))
+    except ValueError as exc:
+        return jsonify({"error": f"invalid mcts_sims: {exc}"}), 400
 
     try:
         _activate_game(game_name)
@@ -593,7 +622,12 @@ def undo_api():
 @app.route("/analyze", methods=["POST"])
 def analyze_api():
     data = request.get_json(force=True)
-    sims = int(data.get("sims", get_search_config(ACTIVE_GAME_NAME).mcts_sims))
+    try:
+        sims = _parse_positive_int(data.get("sims"))
+    except ValueError as exc:
+        return jsonify({"error": f"invalid sims: {exc}"}), 400
+    if sims is None:
+        sims = get_search_config(ACTIVE_GAME_NAME).mcts_sims
 
     mcts = _create_mcts(sims)
     pi = mcts.get_action_probs(BOARD, temp=1, add_noise=False)
@@ -615,6 +649,8 @@ def analyze_api():
 def _bootstrap() -> None:
     _activate_game(ACTIVE_GAME_NAME)
 
+    _refresh_game_runtime()
+    _set_startup_model_pointer()
     default_model = _latest_model_for_game(ACTIVE_GAME_NAME)
     if default_model:
         _load_model(default_model)

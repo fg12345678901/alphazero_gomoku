@@ -251,6 +251,7 @@ def _play_ai_vs_ai(
     sims: int | None,
     desc1: str,
     desc2: str,
+    show_board: bool = False,
 ) -> None:
     size = game.getGameSpec().board_size
     score = {"model1": 0, "model2": 0, "draw": 0}
@@ -267,6 +268,8 @@ def _play_ai_vs_ai(
 
         board = game.getInitBoard()
         print(f"\n=== Game {game_idx + 1} / {games} ===")
+        if show_board:
+            print(_format_board(game_name, board, size))
 
         while True:
             winner = _winner_from_state(game, board)
@@ -293,6 +296,8 @@ def _play_ai_vs_ai(
             who = "model1" if ((current == 1 and model1_is_black) or (current == -1 and not model1_is_black)) else "model2"
             print(f"{side} ({who}) -> {label}")
             board, _ = game.getNextState(board, action)
+            if show_board:
+                print(_format_board(game_name, board, size))
 
     total = sum(score.values())
     print("\n--- Final score ---")
@@ -312,6 +317,11 @@ def main() -> None:
     parser.add_argument("--human-color", choices=("black", "white"), default="white")
     parser.add_argument("--games", type=int, default=1, help="number of games for AI vs AI")
     parser.add_argument("--sims", type=int, default=None, help="override MCTS simulations")
+    parser.add_argument(
+        "--show-board",
+        action="store_true",
+        help="render board after each move in AI vs AI mode",
+    )
     args = parser.parse_args()
 
     game_name = normalize_game_name(args.game)
@@ -343,7 +353,17 @@ def main() -> None:
     if args.games < 1:
         parser.error("--games must be >= 1")
 
-    _play_ai_vs_ai(game_name, game, net1, net2, args.games, args.sims, desc1, desc2)
+    _play_ai_vs_ai(
+        game_name,
+        game,
+        net1,
+        net2,
+        args.games,
+        args.sims,
+        desc1,
+        desc2,
+        show_board=args.show_board,
+    )
 
 
 if __name__ == "__main__":
